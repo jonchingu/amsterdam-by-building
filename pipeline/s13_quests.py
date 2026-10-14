@@ -19,7 +19,6 @@ def main():
     curated = {L["id"]: L for L in json.load(open("data/curated.json"))}
     wiki = json.load(open("web/data/wiki.json"))
     wk = pd.read_parquet("data/wiki_index.parquet").set_index("bag").wk
-    label = lambda bag, lang="en": (wiki[wk[bag]].get("label" if lang == "en" else "label_nl") if bag in wk.index else None)
 
     def where(at):
         kind, _, ref = at.partition(":")

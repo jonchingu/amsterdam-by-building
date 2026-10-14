@@ -11,7 +11,7 @@ import geopandas as gpd
 import numpy as np
 import shapely
 
-from .s03_tiles import DAM, to_local
+from .s03_tiles import to_local
 
 OUT = Path("web/data")
 

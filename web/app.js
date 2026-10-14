@@ -17,11 +17,16 @@ const MODE = { period: 0, floors: 1, energy: 2, layers: 3 };
 const ENERGY_COLORS = ['#efeee9', '#c1272d', '#e4572e', '#f08a24', '#f6c445', '#c9d64a', '#8cc152', '#4caf50',
   '#2e9a49', '#1d8040', '#126b35', '#0b5a2c', '#064a24'];
 
+// web/data/ is built by the pipeline and not in the repository; without it, say so instead of hanging at 0%.
+const need = r => { if (!r.ok) throw new Error(`${r.url}: ${r.status}`); return r; };
 const [config, layers, attrBuf] = await Promise.all([
-  fetch('data/amsterdam.json').then(r => r.json()),
-  fetch('data/layers.json').then(r => r.json()),
-  fetch('data/attrs.bin').then(r => r.arrayBuffer()),
-]);
+  fetch('data/amsterdam.json').then(need).then(r => r.json()),
+  fetch('data/layers.json').then(need).then(r => r.json()),
+  fetch('data/attrs.bin').then(need).then(r => r.arrayBuffer()),
+]).catch(e => {
+  document.getElementById('loading').textContent = 'No map data in web/data/: run the pipeline first (see README).';
+  throw e;
+});
 const attrs = new DataView(attrBuf);
 
 // ---------- Language ----------
@@ -50,9 +55,6 @@ const NL_UI = {
   'Start': 'Begin',
   'Continue': 'Verder',
   'Play again': 'Opnieuw',
-  
-  'Find buildings from riddles and old photos, guess their age with the colours switched off. Every answer is worth three crosses; hints and wrong answers cost one.': 'Vind gebouwen aan de hand van raadsels en oude foto’s, raad hun leeftijd met de kleuren uit. Elk antwoord is drie kruisjes waard; hints en foute antwoorden kosten er een.',
-  'Your crosses': 'Je kruisjes',
   'Look inside the red circle.': 'Kijk binnen de rode cirkel.',
   'Find it on the map and click it.': 'Zoek het op de kaart en klik erop.',
   'Hint': 'Hint',
@@ -61,13 +63,10 @@ const NL_UI = {
   'Show me': 'Laat zien',
   'Your guess': 'Jouw gok',
   'Guess': 'Raad',
-  'A photo of the building to find': 'Een foto van het gebouw dat je zoekt',
   'Built': 'Gebouwd',
   'Exactly right.': 'Precies goed.',
   'year off': 'jaar ernaast',
   'years off': 'jaar ernaast',
-  'Shown, not found: no crosses.': 'Getoond, niet gevonden: geen kruisjes.',
-  'Full marks.': 'Alle kruisjes.',
   'See the result': 'Bekijk het resultaat',
   'Next': 'Volgende',
   'Open its card': 'Open de kaart van het gebouw',
@@ -76,8 +75,6 @@ const NL_UI = {
   'You know your way around.': 'Je weet de weg.',
   'A good walk.': 'Een mooie wandeling.',
   'Time for a walk through town.': 'Tijd voor een wandeling door de stad.',
-  'Copy result': 'Kopieer resultaat',
-  'Copied': 'Gekopieerd',
   'More quests': 'Meer speurtochten',
   'Not this one, but right next to it.': 'Deze niet, maar het staat ernaast.',
   'Not this one. Very warm.': 'Deze niet. Heel warm.',
@@ -1408,7 +1405,7 @@ function stopPlay() {
   uniforms.uRise.value = 0.01;
   uniforms.uYear.value = Math.round(uniforms.uYear.value);
   playIcon.setAttribute('d', 'M4 2.5v11l9-5.5z');
-  playBtn.setAttribute('aria-label', "Play the city's growth");
+  playBtn.setAttribute('aria-label', t("Play the city's growth"));
 }
 playBtn.onclick = () => playing ? stopPlay() : startPlay();
 

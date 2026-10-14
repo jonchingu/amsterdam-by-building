@@ -3,7 +3,6 @@ import csv
 import json
 import re
 from functools import cache
-from urllib.parse import quote
 
 import geopandas as gpd
 import requests
