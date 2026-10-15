@@ -5,7 +5,8 @@ building whose footprint contains the point, else the nearest within MATCH_RADIU
 height or a floor count, a building that disagrees by more than a third loses to a better fitting neighbour.
 Railway stations count only when the point falls inside a footprint (station buildings, not platforms or tracks).
 When several items land on one building, the best-known one (most sitelinks) keeps it.
-Corrections checked by hand live in tokyo_wiki_fixes.py: an item pinned to a building, or dropped.
+Corrections checked by hand live in tokyo_wiki_fixes.py: an item pinned to a building, or dropped, and the year a
+present building was finished where Wikidata gives the institution's.
 
 Heritage designations (P1435) are grouped by who designates them: the nation (国宝, 重要文化財, 登録有形文化財),
 Tokyo Metropolis, or the ward.
@@ -16,8 +17,9 @@ its ground floor), so the viewer shows the Wikidata name first.
 Wikidata is CC0. Photos are Wikimedia Commons file names; the viewer loads them from Commons and links each file page.
 
 Output: web/data/tokyo/wiki.json  {PLATEAU id: {wd, ja, en, descJa, descEn, year, architects, types, styles,
-                                                heritage, image, commons, website, jawiki, enwiki}}
-         Labelled values are [English, Japanese]; heritage entries add their level (see HERITAGE_LEVELS).
+                                                heritage, awards, image, commons, website, jawiki, enwiki}}
+         Labelled values are [English, Japanese]; architects add their Wikidata id, heritage entries their level
+         (see HERITAGE_LEVELS), awards their Wikidata id and the year received.
 
     uv run python -m pipeline.tokyo_s02_wiki      # after tokyo_s01_buildings
 """
@@ -31,7 +33,7 @@ import numpy as np
 import requests
 from scipy.spatial import cKDTree
 
-from .tokyo_wiki_fixes import FIXES
+from .tokyo_wiki_fixes import COMPLETED, FIXES
 
 OUT = Path("web/data/tokyo")
 RAW = Path("data/tokyo/wikidata.json")
@@ -80,13 +82,15 @@ SELECT ?i ?t ?tJa ?tEn ?ja ?en ?descJa ?descEn ?c ?inception ?opened ?img ?commo
   OPTIONAL { ?jawiki schema:about ?i ; schema:isPartOf <https://ja.wikipedia.org/> }
   OPTIONAL { ?enwiki schema:about ?i ; schema:isPartOf <https://en.wikipedia.org/> }
 }"""
-# Style (P149) and heritage designation (P1435) apart, so their values do not multiply the rows above.
+# Style (P149), heritage designation (P1435) and awards (P166, with the year received) apart, so their values do not
+# multiply the rows above.
 EXTRAS = """
-SELECT ?i ?kind ?v ?vJa ?vEn WHERE {
+SELECT ?i ?kind ?v ?vJa ?vEn ?when WHERE {
   SERVICE wikibase:box { ?i wdt:P625 ?c .
     bd:serviceParam wikibase:cornerSouthWest "Point(%(w)s %(s)s)"^^geo:wktLiteral .
     bd:serviceParam wikibase:cornerNorthEast "Point(%(e)s %(n)s)"^^geo:wktLiteral . }
   { ?i wdt:P149 ?v BIND("styles" AS ?kind) } UNION { ?i wdt:P1435 ?v BIND("heritage" AS ?kind) }
+  UNION { ?i p:P166 ?st . ?st ps:P166 ?v . OPTIONAL { ?st pq:P585 ?when } BIND("awards" AS ?kind) }
   OPTIONAL { ?v rdfs:label ?vJa FILTER(LANG(?vJa) = "ja") }
   OPTIONAL { ?v rdfs:label ?vEn FILTER(LANG(?vEn) = "en") }
 }"""
@@ -143,7 +147,7 @@ def fetch_items(index):
             continue
         v = lambda k: r[k]["value"] if k in r else None
         d = items.setdefault(qid(v("i")), dict(wd=qid(v("i")), years=[], architects=[], types=[], styles=[],
-                                               heritage=[], links=int(v("links")), inside_only=True))
+                                               heritage=[], awards=[], links=int(v("links")), inside_only=True))
         d["inside_only"] &= r["t"]["value"] not in kinds
         kind = [v("tEn") or v("tJa"), v("tJa")]
         if qid(v("t")) not in GENERIC and kind[0] and kind not in d["types"]:
@@ -157,12 +161,15 @@ def fetch_items(index):
             year = re.match(r"(-?\d+)-", v(k) or "")
             if year:
                 d["years"].append(int(year.group(1)))
-        arch = [v("archEn") or v("archJa"), v("archJa")]
+        arch = [v("archEn") or v("archJa"), v("archJa"), qid(v("arch")) if v("arch") else None]
         if arch[0] and arch not in d["architects"]:
             d["architects"].append(arch)
     for r in extras:
         d = items.get(qid(r["i"]["value"]))
         label = [r.get("vEn", r.get("vJa", {})).get("value"), r.get("vJa", {}).get("value")]
+        if r["kind"]["value"] == "awards":
+            when = re.match(r"\d{4}", r.get("when", {}).get("value", ""))
+            label += [qid(r["v"]["value"]), int(when.group()) if when else None]
         if d and label[0] and label not in d[r["kind"]["value"]]:
             d[r["kind"]["value"]].append(label)
     RAW.parent.mkdir(parents=True, exist_ok=True)
@@ -246,11 +253,13 @@ def main():
     out = {}
     for i, (it, _) in best.items():
         rec = {k: it[k] for k in ("wd", "ja", "en", "descJa", "descEn", "jawiki", "enwiki", "commons", "site",
-                                  "types", "styles") if it.get(k)}
+                                  "types", "styles", "awards") if it.get(k)}
         if it["heritage"]:
             rec["heritage"] = sorted(([*h, heritage_level(h)] for h in it["heritage"]), key=lambda h: h[2])
         if it["years"]:
             rec["year"] = min(it["years"])
+        if COMPLETED.get(it["wd"]):
+            rec["year"] = COMPLETED[it["wd"]]
         if it["architects"]:
             rec["architects"] = it["architects"]
         if it.get("img"):

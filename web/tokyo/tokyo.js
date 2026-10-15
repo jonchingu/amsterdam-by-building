@@ -1,6 +1,7 @@
 // Tokyo, one by one: step through the PLATEAU buildings, each framed on its own with its neighbours around it.
 // Data from pipeline/tokyo_s01_buildings.py: buildings.json (columnar index) and cells/<i>_<j>.bin (geometry);
-// names, years, architects and photos from Wikidata in wiki.json (pipeline/tokyo_s02_wiki.py), when present.
+// names, years, architects and photos from Wikidata in wiki.json (pipeline/tokyo_s02_wiki.py), and the context layers
+// in layers.json (pipeline/tokyo_s03_layers.py), when present.
 import * as THREE from '../vendor/three.module.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 
@@ -34,12 +35,10 @@ const cellByKey = new Map(index.cells.map((k, ci) => [k, ci]));
 
 // Wikidata's name comes first: PLATEAU's 名称 is sometimes a tenant (the Grand Hyatt is filed under a police box).
 const wiki = new Array(N);
-let heritageLevels = [];
 try {
   const r = await fetch(DATA + 'wiki.json');
   if (r.ok) {
     const data = await r.json();
-    heritageLevels = data.heritageLevels || [];
     for (let i = 0; i < N; i++) wiki[i] = data.buildings[idOf(i)];
   }
 } catch { /* the viewer works without it */ }
@@ -48,7 +47,8 @@ const labels = (list) => (list || []).flat().filter((v) => typeof v === 'string'
 const haystack = Array.from({ length: N }, (_, i) => {
   const w = wiki[i] || {};
   return [nameOf(i), C.name[i], w.en || '', index.addresses[C.address[i]], idOf(i),
-    ...labels(w.types), ...labels(w.styles), ...labels(w.heritage)].join(' ').toLowerCase();
+    ...labels(w.types), ...labels(w.styles), ...labels(w.heritage), ...labels(w.architects), ...labels(w.awards)]
+    .join(' ').toLowerCase();
 });
 
 // ---------------------------------------------------------------- colour modes for the neighbours
@@ -64,10 +64,7 @@ const MODES = {
       ['5–10 m', 5, 10, '#ff9191'], ['10 m and more', 10, Infinity, '#f285c9']] },
   fire: { title: 'Fire zone', note: 'Fire-prevention districts of the city plan.', value: (i) => C.fire[i] || null,
     bins: index.fires.slice(1).map(([ja, en], k) => [`${en} ${ja}`, k + 1, k + 1, ['#e3b98f', '#b5653a'][k % 2]]) },
-  heritage: { title: 'Heritage', note: 'Highest heritage designation, from Wikidata.',
-    value: (i) => wiki[i]?.heritage?.[0]?.[2] ?? null,
-    bins: heritageLevels.map((label, k) => [label, k, k,
-      ['#5e1846', '#8e2f68', '#c0679a', '#3f5aa6', '#7f95d1', '#a99f8c'][k] || '#a99f8c']) },
+  layers: { title: 'Layers', bins: [] },
   era: { title: 'Era', note: 'Year built or founded, from Wikidata; known for landmarks only.', value: (i) => wiki[i]?.year ?? null, bins: [
     ['Before 1868 · Edo and earlier', -Infinity, 1867, '#6b4a2b'], ['1868–1911 Meiji', 1868, 1911, '#a5642a'],
     ['1912–1925 Taishō', 1912, 1925, '#c99a3b'], ['1926–1944 early Shōwa', 1926, 1944, '#7f9a4a'],
@@ -84,6 +81,36 @@ const plainColor = new THREE.Color();
 function binOf(m, i) {
   const v = m.value?.(i);
   return v == null ? null : m.bins.find((b) => v >= b.lo && v <= b.hi) || null;
+}
+
+// ---------------------------------------------------------------- context layers
+// Each layer is a set of buildings in groups, with a story per building; opening one colours its buildings by group
+// and narrows the list to them, so the stepper walks through the layer.
+const GROUP_COLORS = ['#2f6db5', '#2a9d8f', '#d4a017', '#7b4fa0', '#5f8f2f', '#c06c98'];
+let layers = [];
+try {
+  const r = await fetch(DATA + 'layers.json');
+  if (r.ok) layers = await r.json();
+} catch { /* the viewer works without it */ }
+const layersOf = new Array(N);
+{
+  const byId = new Map(Array.from({ length: N }, (_, i) => [idOf(i), i]));
+  for (const L of layers) {
+    L.groups.forEach((g, k) => Object.assign(g, { color: new THREE.Color(GROUP_COLORS[k % GROUP_COLORS.length]), on: true }));
+    L.index = new Map();
+    for (const [pid, groups] of Object.entries(L.members)) {
+      const i = byId.get(pid);
+      if (i === undefined) continue;
+      L.index.set(i, groups);
+      (layersOf[i] ||= []).push(L);
+    }
+  }
+}
+let activeLayer = null;
+const groupIn = (L, i) => L.index.get(i)?.map((k) => L.groups[k]).find((g) => g.on);
+function colourOf(i) {
+  if (mode === MODES.layers) return (activeLayer && groupIn(activeLayer, i)?.color) || plainColor;
+  return binOf(mode, i)?.color || plainColor;
 }
 
 // Metres from Tokyo Station back to latitude and longitude, for the map links.
@@ -213,7 +240,7 @@ function buildCell(entry, buf) {
 function paintCell(entry) {
   const attr = entry.mesh.geometry.getAttribute('color'), rgb = attr.array, list = members[entry.ci];
   for (let k = 0; k < list.length; k++) {
-    const c = binOf(mode, list[k])?.color || plainColor;
+    const c = colourOf(list[k]);
     const r = c.r * 255, g = c.g * 255, b = c.b * 255;
     for (let v = entry.vStart[k]; v < entry.vStart[k + 1]; v++) { rgb[3 * v] = r; rgb[3 * v + 1] = g; rgb[3 * v + 2] = b; }
   }
@@ -222,8 +249,7 @@ function paintCell(entry) {
 
 function setMode(key) {
   mode = MODES[key];
-  $('photoImg').addEventListener('error', () => { $('photo').hidden = true; });
-for (const b of document.querySelectorAll('.modes button')) b.setAttribute('aria-pressed', b.dataset.mode === key);
+  for (const b of document.querySelectorAll('.modes button')) b.setAttribute('aria-pressed', b.dataset.mode === key);
   const legend = $('legend');
   legend.replaceChildren();
   legend.hidden = !mode.value;
@@ -240,7 +266,84 @@ for (const b of document.querySelectorAll('.modes button')) b.setAttribute('aria
       legend.appendChild(row);
     }
   }
+  $('layerPanel').hidden = key !== 'layers';
+  if (key === 'layers') renderLayerPanel();
+  else if (activeLayer) {
+    activeLayer = null;
+    document.querySelector('.browse').classList.remove('in-layer');
+    refilter();
+  }
+  repaint();
+}
+
+function repaint() {
   for (const entry of cells.values()) if (entry.mesh) paintCell(entry);
+}
+
+function openLayer(L) {
+  if (mode !== MODES.layers) setMode('layers');
+  activeLayer = L;
+  document.querySelector('.browse').classList.toggle('in-layer', !!L);
+  if (L) for (const g of L.groups) g.on = true;
+  renderLayerPanel();
+  repaint();
+  refilter();
+}
+
+const make = (tag, props = {}, ...children) => {
+  const el = Object.assign(document.createElement(tag), props);
+  el.append(...children);
+  return el;
+};
+
+function renderLayerPanel() {
+  const panel = $('layerPanel');
+  panel.replaceChildren();
+  if (!layers.length) {
+    panel.append(make('p', { className: 'caveat', textContent: 'No layers yet: run pipeline.tokyo_s03_layers, then reload.' }));
+    return;
+  }
+  if (!activeLayer) {
+    let section;
+    for (const L of layers) {
+      if (L.section !== section) panel.append(make('p', { className: 'section', textContent: (section = L.section) }));
+      const b = make('button', { className: 'layer' }, make('b', { textContent: L.title }),
+        make('span', { className: 'n', textContent: L.index.size.toLocaleString('en') }),
+        make('span', { className: 'era', textContent: L.era }));
+      b.addEventListener('click', () => openLayer(L));
+      panel.append(b);
+    }
+    return;
+  }
+  const L = activeLayer;
+  const back = make('button', { className: 'back', textContent: '‹ All layers' });
+  back.addEventListener('click', () => openLayer(null));
+  const swatches = make('div', { className: 'swatches', role: 'group', ariaLabel: 'Groups shown' });
+  for (const g of L.groups.filter((x) => x.count)) {
+    const b = make('button', { className: 'swatch' }, make('i'), make('span', { textContent: g.label }),
+      make('span', { className: 'n', textContent: g.count.toLocaleString('en') }));
+    b.firstChild.style.background = `#${g.color.getHexString()}`;
+    b.setAttribute('aria-pressed', g.on);
+    b.addEventListener('click', () => {
+      g.on = !g.on;
+      b.setAttribute('aria-pressed', g.on);
+      repaint();
+      refilter();
+    });
+    swatches.append(b);
+  }
+  // The story, its caveat and its source stay folded so the list below keeps its room; "More" opens them.
+  const about = make('div', { className: 'about-layer', id: 'layerAbout', hidden: true }, make('p', { textContent: L.text }),
+    ...(L.caveat ? [make('p', { className: 'caveat', textContent: L.caveat })] : []),
+    make('a', { href: L.source.url, target: '_blank', rel: 'noopener', textContent: L.source.label }));
+  const more = make('button', { className: 'more', textContent: 'About this layer' });
+  more.setAttribute('aria-expanded', 'false');
+  more.setAttribute('aria-controls', 'layerAbout');
+  more.addEventListener('click', () => {
+    about.hidden = !about.hidden;
+    more.setAttribute('aria-expanded', !about.hidden);
+  });
+  panel.append(back, make('h3', {}, L.title, ' ', make('span', { className: 'era', textContent: L.era })), more, about, swatches);
 }
 
 function applyGroups(entry) {
@@ -288,12 +391,12 @@ function label(i) {
 function refilter() {
   const q = $('search').value.trim().toLowerCase();
   const ward = $('ward').value, usage = $('usage').value;
-  const named = $('named').checked, lod2 = $('lod2').checked, heritage = $('heritageOnly').checked;
+  const named = $('named').checked, lod2 = $('lod2').checked;
   const keep = [];
   for (let i = 0; i < N; i++) {
     if (named && !nameOf(i)) continue;
     if (lod2 && C.lod[i] < 2) continue;
-    if (heritage && !wiki[i]?.heritage) continue;
+    if (activeLayer && !groupIn(activeLayer, i)) continue;
     if (ward !== '' && C.ward[i] !== +ward) continue;
     if (usage !== '' && C.usage[i] !== +usage) continue;
     if (q && !haystack[i].includes(q)) continue;
@@ -310,7 +413,8 @@ function refilter() {
   rankOf.fill(-1);
   order = Int32Array.from(keep);
   order.forEach((i, r) => { rankOf[i] = r; });
-  $('count').textContent = `${order.length.toLocaleString('en')} of ${N.toLocaleString('en')} buildings`;
+  $('count').textContent = `${order.length.toLocaleString('en')} of ${N.toLocaleString('en')} buildings`
+    + (activeLayer ? ` · ${activeLayer.title}` : '');
   listEl.querySelector('.spacer').style.height = `${order.length * ROW}px`;
   if (order.length && rankOf[current] < 0) show(order[0]);
   else { renderList(); scrollToCurrent(); updatePos(); }
@@ -415,11 +519,14 @@ function updateCard(i) {
   facts.replaceChildren();
   if (C.height[i]) facts.append(fact('Height', `${C.height[i].toFixed(1)} m`));
   if (C.floors[i]) facts.append(fact('Floors', C.basements[i] ? `${C.floors[i]} + ${C.basements[i]} below` : `${C.floors[i]}`));
+  // A known building drawn as a plain block should not be read as its design.
+  const known = !!(name || layersOf[i]);
+  if (C.lod[i] < 2 && known) facts.append(fact('Model', 'A plain block (LOD1): PLATEAU has no detailed shape for this building'));
   if (w.year != null) facts.append(fact('Built or founded', `${w.year}`));
   if (w.architects) facts.append(fact('Architect', w.architects.slice(0, 3).map(([en]) => en).join(', '), '', true));
   if (w.types) facts.append(fact('Type', w.types.slice(0, 2).map(([en]) => en).join(', '), w.types[0][1]));
   if (w.styles) facts.append(fact('Style', w.styles.slice(0, 2).map(([en]) => en).join(', '), w.styles[0][1], true));
-  for (const [en, ja] of (w.heritage || []).slice(0, 2)) facts.append(fact('Heritage', en, ja));
+  if (!layers.length) for (const [en, ja] of (w.heritage || []).slice(0, 2)) facts.append(fact('Heritage', en, ja));
   const [useJa, useEn] = index.usages[C.usage[i]];
   if (useJa) facts.append(fact('Use', useEn, useJa));
   if (C.flood[i]) {
@@ -441,13 +548,16 @@ function updateCard(i) {
   const [strJa, strEn] = index.structures[C.structure[i]];
   if (strJa) facts.append(fact('Structure', strEn, strJa, true));
   if (C.area[i]) facts.append(fact('Footprint', `${Math.round(C.area[i]).toLocaleString('en')} m²`, '', true));
-  facts.append(fact('Model', C.lod[i] >= 2 ? 'LOD2, with roof shapes' : 'LOD1, a block at measured height', '', true));
+  if (C.lod[i] >= 2 || !known) {
+    facts.append(fact('Model', C.lod[i] >= 2 ? 'LOD2, with roof shapes' : 'LOD1, a block at measured height', '', true));
+  }
   facts.append(fact('PLATEAU id', idOf(i), '', true));
   const [lat, lon] = latLon(i).map((v) => v.toFixed(6));
   const links = $('links');
   links.replaceChildren();
   const wp = (lang, title) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(' ', '_'))}`;
   showSummary(i, w);
+  showLayers(i);
   for (const [text, href] of [
     w.site && ['Website', w.site],
     w.commons && ['More photos', `https://commons.wikimedia.org/wiki/Category:${encodeURIComponent(w.commons.replaceAll(' ', '_'))}`],
@@ -461,6 +571,23 @@ function updateCard(i) {
     a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text;
     links.appendChild(a);
   }
+}
+
+// The layers a building belongs to, and why; a click opens the layer with this building in view.
+function showLayers(i) {
+  const list = $('inLayersList');
+  list.replaceChildren();
+  for (const L of layersOf[i] || []) {
+    const groups = L.index.get(i).map((k) => L.groups[k]);
+    const note = L.notes[idOf(i)];
+    const b = make('button', { title: `Open the layer ${L.title}` }, make('i'),
+      make('div', {}, make('b', { textContent: L.title }), ' ', make('span', { textContent: groups.map((g) => g.label).join(', ') }),
+        ...(note ? [make('p', { textContent: note })] : [])));
+    b.firstChild.style.background = `#${groups[0].color.getHexString()}`;
+    b.addEventListener('click', () => openLayer(L));
+    list.append(make('li', {}, b));
+  }
+  $('inLayers').hidden = !list.childElementCount;
 }
 
 // A few sentences on the building: Wikipedia's summary, fetched by the browser (English first, the interface's
@@ -632,7 +759,8 @@ $('listToggle').addEventListener('click', () => {
 for (const b of document.querySelectorAll('.modes button')) b.addEventListener('click', () => setMode(b.dataset.mode));
 let typing;
 $('search').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(refilter, 150); });
-for (const id of ['ward', 'usage', 'sort', 'named', 'lod2', 'heritageOnly']) $(id).addEventListener('change', refilter);
+for (const id of ['ward', 'usage', 'sort', 'named', 'lod2']) $(id).addEventListener('change', refilter);
+$('photoImg').addEventListener('error', () => { $('photo').hidden = true; });
 addEventListener('keydown', (e) => {
   if (e.target.closest('input, select')) { if (e.key === 'Escape') e.target.blur(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;

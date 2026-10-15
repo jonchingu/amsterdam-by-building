@@ -21,13 +21,14 @@
   <div class="colour">
     <div class="modes" role="group" aria-label="Colour the neighbours by">
       <button data-mode="plain" aria-pressed="true">Plain</button>
+      <button data-mode="layers" aria-pressed="false">Layers</button>
       <button data-mode="floors" aria-pressed="false">Floors</button>
       <button data-mode="flood" aria-pressed="false">Flood</button>
       <button data-mode="fire" aria-pressed="false">Fire zone</button>
-      <button data-mode="heritage" aria-pressed="false">Heritage</button>
       <button data-mode="era" aria-pressed="false">Era</button>
     </div>
     <div class="legend" id="legend" hidden></div>
+    <div class="layerpanel" id="layerPanel" hidden></div>
   </div>
   <div class="filters">
     <input id="search" type="search" placeholder="Search name or address" aria-label="Search buildings by name or address" autocomplete="off">
@@ -45,7 +46,6 @@
       </select>
       <label class="check"><input id="named" type="checkbox"> Named</label>
       <label class="check"><input id="lod2" type="checkbox"> Detailed roofs</label>
-      <label class="check"><input id="heritageOnly" type="checkbox"> Heritage</label>
     </div>
   </div>
   <p class="count" id="count" aria-live="polite"></p>
@@ -65,6 +65,10 @@
     <p class="summary" id="summary"></p>
     <p class="source" id="summarySource"></p>
   </div>
+  <div class="inlayers" id="inLayers" hidden>
+    <p class="sub">In layers</p>
+    <ul id="inLayersList"></ul>
+  </div>
   <dl id="facts"></dl>
   <p class="links" id="links"></p>
 </section>
@@ -79,7 +83,7 @@
   <button id="listToggle" class="only-narrow" aria-expanded="false" aria-controls="list">List</button>
 </nav>
 
-<p class="credit">3D city model: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">Project PLATEAU</a>, MLIT Japan (2020). Names, years, heritage and photos: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a>, Wikimedia Commons; summaries: Wikipedia.</p>
+<p class="credit">3D city model: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">Project PLATEAU</a>, MLIT Japan (2020). Names, years, architects, heritage, awards and photos: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a>, Wikimedia Commons; summaries: Wikipedia.</p>
 <p class="status" id="status">Loading the city…</p>
 
 <script type="module" src="tokyo.js"></script>

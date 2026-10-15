@@ -54,15 +54,22 @@ The buildings come from [Project PLATEAU](https://www.mlit.go.jp/plateau/), the 
 Ministry of Land, Infrastructure, Transport and Tourism (2020 Tokyo 23 wards, 3D Tiles without textures).
 `tokyo_s01_buildings` cuts every building out of the tiles by its batch id and moves it to metres around Tokyo Station,
 keeping PLATEAU's flood depth, fire zone and planning districts. `tokyo_s02_wiki` matches Wikidata buildings to their
-footprints for names, years, architects, types, styles, heritage status and photos; `tokyo_wiki_fixes.py` holds the
-matches corrected by hand. The card adds a Wikipedia summary, fetched by the browser. The neighbours can be coloured by
-floors, flood depth, fire zone, heritage designation or era (Edo to Reiwa, for the landmarks Wikidata dates). [docs/tokyo-data-sources.md](docs/tokyo-data-sources.md) compares
-what Tokyo's open data offers with Amsterdam's.
+footprints for names, years, architects, types, styles, heritage status, awards and photos; `tokyo_wiki_fixes.py`
+holds the matches and completion years corrected by hand. The card adds a Wikipedia summary, fetched by the browser.
+The neighbours can be coloured by floors, flood depth, fire zone or era (Edo to Reiwa, for the landmarks Wikidata dates).
+
+Context layers work as Amsterdam's do: `pipeline/tokyo_layers.py` defines each with the same `@layer` decorator, and
+`tokyo_s03_layers` resolves them to buildings. Opening a layer colours its buildings by group and narrows the list to
+them, so the stepper walks through the layer; the card says which layers a building is in, and why. Three so far, all
+from Wikidata: protected heritage, architects (from the Meiji pioneers to today's design firms) and prize-winning
+buildings. [docs/tokyo-data-sources.md](docs/tokyo-data-sources.md) compares what Tokyo's open data offers with
+Amsterdam's.
 
 ```bash
 uv run python -m pipeline.tokyo_s00_fetch          # Chiyoda, Chūō, Minato, Shinjuku, Shibuya (~200 MB); `all` for 23 wards
 uv run python -m pipeline.tokyo_s01_buildings      # → web/data/tokyo/: 146,784 buildings for the five central wards
 uv run python -m pipeline.tokyo_s02_wiki           # → web/data/tokyo/wiki.json: 1,442 buildings matched to Wikidata
+uv run python -m pipeline.tokyo_s03_layers         # → web/data/tokyo/layers.json: heritage, architects, prizes
 python3 -m http.server 8642 --directory web        # http://localhost:8642/tokyo/
 ```
 
