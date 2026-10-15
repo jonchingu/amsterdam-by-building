@@ -28,9 +28,14 @@ Reachability was tested from the cloud environment this pipeline was built in; a
 - **Tokyo Station** is the same: its Wikidata point lands on a platform roof, and PLATEAU files the Marunouchi
   station building under the police box in front of it. `tokyo_wiki_fixes.py` pins the item to the right building.
 - **Demolished buildings** are left out of the Wikidata query (items with a dissolved or demolished date, P576).
-- **Newer PLATEAU releases** would be the next source to try for construction years. They need
-  `assets.cms.plateau.reearth.io` allowed in the environment's network settings; whether Tokyo's newer models carry a
-  year is not yet confirmed.
+- **Newer PLATEAU releases add little for the central wards.** The 23 wards' latest release is 2022
+  (`plateau-tokyo23ku-2022` on geospatial.jp; its CityGML and 3D Tiles sit on `assets.cms.plateau.reearth.io`, which the
+  cloud environment blocks). Its notes give the same LOD2 areas as 2020 plus Itabashi: 35.02 km² against 32.02 km², of
+  627.57 km². The one part of it on the reachable mirror, the Takeshiba grid square (53393680) that ships with the LOD4
+  model, has the same 993 LOD2 buildings out of 1,485 as the 2020 data, and no construction year
+  (`bldg:yearOfConstruction`) on any of them.
+- **LOD4** exists for one building, Tokyo Port City Takeshiba (2022, converted from the builder's BIM model): 40 floors,
+  1,092 rooms, on the mirror under `2022/plateau-tokyo23ku-2023-lod4/`.
 
 ## Sources and licences
 
