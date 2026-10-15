@@ -40,8 +40,11 @@ Reachability was tested from the cloud environment this pipeline was built in; a
   | Chūō, Shinjuku, Shibuya | LOD0, 1, 2.0, 2.2 | LOD0, 1, 2.0, 2.2 |
   | Minato | LOD0, 1, 2.0, 2.2, 3.0 (and 4.0 in the v3 files) | LOD0, 1, 2.0, 2.2, 3.0 |
 
-  All of them sit on `assets.cms.plateau.reearth.io`, which the cloud environment blocks, so how many buildings reach
-  LOD2 or LOD3, and whether they carry a construction year, is not yet known.
+  Counted once that host was allowed (full survey in [`ref/tokyo-plateau-lod3.md`](ref/tokyo-plateau-lod3.md)):
+  the five wards' 2025 files hold 253,749 buildings, of which 184,209 are LOD1, 69,438 LOD2 and only **102 LOD3, all
+  at Toranomon and Shimbashi** in Minato. Minato 2023 adds the one LOD4 (Takeshiba). **No building in any of these
+  files has a construction year**, and the famous LOD1 blocks (Yoyogi, Spiral, Omotesando Hills and others) are still
+  LOD1 in 2025.
 - **Tokyo's aerial LiDAR** (東京都デジタルツイン 区部点群データ, 2024, CC BY) is reachable: 400 × 300 m sheets of
   about 6 million points with RGB colour (about 50 per m²), 114 MB zipped each, on `gic-tokyo.s3.ap-northeast-1.amazonaws.com`
   and indexed by vector tiles. Aerial points catch roofs well and walls sparsely: enough to show the real shape of a
