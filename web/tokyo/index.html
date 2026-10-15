@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tokyo, one by one</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokyo.css">
+</head>
+<body>
+<canvas id="scene" aria-label="3D model of the selected Tokyo building and its neighbours"></canvas>
+
+<header class="masthead">
+  <h1>Tokyo</h1>
+  <p class="dek">Every building in the PLATEAU city model, one at a time.</p>
+</header>
+
+<aside class="browse" aria-label="Buildings">
+  <div class="filters">
+    <input id="search" type="search" placeholder="Search name or address" aria-label="Search buildings by name or address" autocomplete="off">
+    <div class="row">
+      <select id="ward" aria-label="Ward"><option value="">All wards</option></select>
+      <select id="usage" aria-label="Use"><option value="">Any use</option></select>
+    </div>
+    <div class="row">
+      <select id="sort" aria-label="Order">
+        <option value="height">Tallest first</option>
+        <option value="area">Largest footprint</option>
+        <option value="name">By name</option>
+        <option value="shuffle">Shuffled</option>
+      </select>
+      <label class="check"><input id="named" type="checkbox"> Named</label>
+      <label class="check"><input id="lod2" type="checkbox"> Detailed roofs</label>
+    </div>
+  </div>
+  <p class="count" id="count" aria-live="polite"></p>
+  <div class="list" id="list" role="listbox" aria-label="Buildings in order" tabindex="0"><div class="spacer"></div></div>
+</aside>
+
+<section class="card" id="card" aria-live="polite">
+  <p class="kicker" id="kicker"></p>
+  <h2 id="title" lang="ja"></h2>
+  <p class="address" id="address" lang="ja"></p>
+  <dl id="facts"></dl>
+  <p class="links" id="links"></p>
+</section>
+
+<nav class="stepper" aria-label="Step through the buildings">
+  <button id="prev" aria-label="Previous building" title="Previous (←)">‹</button>
+  <span class="pos" id="pos">–</span>
+  <button id="next" aria-label="Next building" title="Next (→)">›</button>
+  <button id="random" title="Random building (R)">Random</button>
+  <button id="spin" aria-pressed="true" title="Turntable (Space)">Spin</button>
+  <button id="alone" aria-pressed="false" title="Hide the neighbours (A)">Alone</button>
+  <button id="listToggle" class="only-narrow" aria-expanded="false" aria-controls="list">List</button>
+</nav>
+
+<p class="credit">3D city model: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">Project PLATEAU</a>, MLIT Japan (2020)</p>
+<p class="status" id="status">Loading the city…</p>
+
+<script type="module" src="tokyo.js"></script>
+</body>
+</html>

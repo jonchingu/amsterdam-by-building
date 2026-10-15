@@ -43,6 +43,23 @@ python3 -m http.server 8642 --directory web
 
 Raw downloads (`data/`) and generated output (`web/data/`) are not in the repository: they are large and rebuilt by the pipeline.
 
+## Tokyo, one by one
+
+A second viewer, `web/tokyo/`, steps through Tokyo's buildings one at a time: each is framed on its own, in vermilion
+among its grey neighbours, with its name, use, height, floors and structure. Order them by height, footprint or name,
+filter by ward, use or name, step with ← → (R for a random one, A to hide the neighbours), or click a neighbour.
+The address bar keeps the building's PLATEAU id, so a link opens on it.
+
+The buildings come from [Project PLATEAU](https://www.mlit.go.jp/plateau/), the national 3D city model by Japan's
+Ministry of Land, Infrastructure, Transport and Tourism (2020 Tokyo 23 wards, 3D Tiles without textures).
+`tokyo_s01_buildings` cuts every building out of the tiles by its batch id and moves it to metres around Tokyo Station.
+
+```bash
+uv run python -m pipeline.tokyo_s00_fetch          # Chiyoda, Chūō, Minato, Shinjuku, Shibuya (~200 MB); `all` for 23 wards
+uv run python -m pipeline.tokyo_s01_buildings      # → web/data/tokyo/: 146,784 buildings for the five central wards
+python3 -m http.server 8642 --directory web        # http://localhost:8642/tokyo/
+```
+
 ## Data decisions
 
 - **Years.** BAG gives every building a construction year but not always a true one: 729 carry the placeholder 1005,
@@ -58,5 +75,6 @@ Raw downloads (`data/`) and generated output (`web/data/`) are not in the reposi
 
 Code: MIT (see [LICENSE](LICENSE)). Data keeps the licence of its source: 3D BAG CC BY 4.0; BAG, BGT, RCE, Wikidata and
 most City of Amsterdam data CC0; some city datasets and the street panoramas CC BY 4.0; Wikipedia text CC BY-SA;
-Wikimedia Commons photos each under their own licence, credited in the app. Stadsarchief Amsterdam photos are
+Wikimedia Commons photos each under their own licence, credited in the app. PLATEAU 3D city models: PLATEAU Site
+Policy (CC BY 4.0 compatible), credit 3D都市モデル（Project PLATEAU）国土交通省. Stadsarchief Amsterdam photos are
 shown from the archive's image server and link to their records; the app stores only their identifiers.
