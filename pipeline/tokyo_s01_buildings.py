@@ -5,7 +5,8 @@ Every building is cut out, moved from Earth-centred coordinates to metres around
 base: x east, y up, z south (three.js), with (0, 0, 0) under the middle of its footprint.
 
 Output (web/data/tokyo/):
-  buildings.json   columnar index: attributes, position, cell and slot of every building; a building's PLATEAU id
+  buildings.json   columnar index: attributes (with flood depth, fire zone and planning districts), position, cell
+                   and slot of every building; a building's PLATEAU id
                    (建物ID) is its ward code, "-bldg-" and its bldg number
   cells/<i>_<j>.bin  the buildings whose centre falls in one 500 m cell, little-endian:
       u32 n; u32 vertCount[n]; u32 indexCount[n]; f32 xyz[3 * sum(vertCount)]; u32 index[sum(indexCount)]
@@ -40,6 +41,22 @@ STRUCTURE = {
     "耐火構造": "Fire-resistant", "準耐火構造": "Semi-fire-resistant", "防火造": "Fire-protected",
     "準防火造": "Semi-fire-protected", "木造": "Wood", "鉄骨造": "Steel frame", "鉄筋コンクリート造": "Reinforced concrete",
     "鉄骨鉄筋コンクリート造": "Steel-reinforced concrete", "非木造": "Non-wood",
+}
+FIRE = {"防火地域": "Fire zone", "準防火地域": "Semi-fire zone"}
+HEIGHT_DISTRICT = {
+    "第一種高度地区": "Class 1 height district", "第二種高度地区": "Class 2 height district",
+    "第三種高度地区": "Class 3 height district", "最低限高度、再高限高度指定のみ": "Minimum or maximum height only",
+}
+LANDSLIDE = {
+    "急傾斜地の崩壊 - 土砂災害警戒区域": "Steep-slope collapse warning zone",
+    "急傾斜地の崩壊 - 土砂災害特別警戒区域": "Steep-slope collapse special warning zone",
+}
+# Flood columns are named "<scenario area>_想定最大規模_浸水深" (depth under the assumed maximum rainfall), one per river basin.
+FLOOD_DEPTH, FLOOD_HOURS = "_想定最大規模_浸水深", "_想定最大規模_継続時間"
+RIVERS = {
+    "荒川水系荒川洪水浸水想定区域": "Arakawa River", "神田川流域浸水予想区域": "Kanda River basin",
+    "城南地区河川流域浸水予想区域（改定）": "Jōnan rivers (Shibuya, Furukawa, Meguro)",
+    "江東内部河川流域浸水予想区域": "Kōtō inner rivers",
 }
 COMPONENT = {"BYTE": "b", "UNSIGNED_BYTE": "B", "SHORT": "h", "UNSIGNED_SHORT": "H", "INT": "i", "UNSIGNED_INT": "I",
              "FLOAT": "f", "DOUBLE": "d", 5120: "b", 5121: "B", 5122: "h", 5123: "H", 5125: "I", 5126: "f"}
@@ -123,6 +140,12 @@ def text(v):
     return v.strip() if isinstance(v, str) else ""
 
 
+def name_of(v):
+    # A few buildings carry their gml id as 名称.
+    v = text(v)
+    return "" if v.startswith("BLD_") else v
+
+
 def number(v, digits=1):
     if v is None:
         return None
@@ -153,8 +176,17 @@ def buildings_of(tile: Path, origin, rot):
         base = verts[:, 2].min()
         three = np.c_[verts[:, 0] - cx, verts[:, 2] - base, -(verts[:, 1] - cy)].astype(np.float32)
         get = lambda k: attrs[k][b] if k in attrs else None
+        flood, river = None, ""
+        for key in attrs:
+            depth = number(get(key), 2) if key.endswith(FLOOD_DEPTH) else None
+            if depth and (flood is None or depth > flood):
+                flood, river = depth, key[:-len(FLOOD_DEPTH)]
+        hours = [number(get(k), 0) for k in attrs if k.endswith(FLOOD_HOURS)]
         yield dict(
-            gml=text(get("_gml_id")), bldg=text(get("建物ID")), name=text(get("名称")), usage_ja=text(get("用途")),
+            flood=flood, river=river, flood_hours=max((h for h in hours if h), default=None),
+            fire=text(get("防火及び準防火地域")), height_district=text(get("高度地区")),
+            district_plan=text(get("地区計画")), landslide=text(get("土砂災害警戒区域")),
+            gml=text(get("_gml_id")), bldg=text(get("建物ID")), name=name_of(get("名称")), usage_ja=text(get("用途")),
             structure_ja=text(get("建物構造")), address=text(get("住所")),
             height=number(get("計測高さ")) or round(float(three[:, 1].max()), 1),
             floors=int(get("地上階数") or 0), basements=int(get("地下階数") or 0),
@@ -210,6 +242,11 @@ def main(only=()):
     usages, usage = codes([b["usage_ja"] for b in rows])
     structures, structure = codes([b["structure_ja"] for b in rows])
     addresses, address = codes([b["address"] for b in rows])
+    rivers, river = codes([b["river"] for b in rows])
+    fires, fire = codes([b["fire"] for b in rows])
+    height_districts, height_district = codes([b["height_district"] for b in rows])
+    district_plans, district_plan = codes([b["district_plan"] for b in rows])
+    landslides, landslide = codes([b["landslide"] for b in rows])
     index = dict(
         source="3D都市モデル（Project PLATEAU）東京都23区（2020年度）国土交通省",
         origin=ORIGIN[:2], cell=CELL, cells=[f"{i}_{j}" for i, j in keys],
@@ -217,6 +254,9 @@ def main(only=()):
         usages=[[u, USAGE.get(u, u)] for u in usages],
         structures=[[s, STRUCTURE.get(s, s)] for s in structures],
         addresses=addresses,
+        rivers=[[r, RIVERS.get(r, r)] for r in rivers], fires=[[f, FIRE.get(f, f)] for f in fires],
+        heightDistricts=[[h, HEIGHT_DISTRICT.get(h, h)] for h in height_districts],
+        districtPlans=district_plans, landslides=[[l, LANDSLIDE.get(l, l)] for l in landslides],
         columns=dict(
             bldg=[int(b["bldg"].rsplit("-", 1)[1]) for b in rows], name=[b["name"] for b in rows],
             ward=[wards.index(b["ward"]) for b in rows], usage=usage, structure=structure, address=address,
@@ -224,12 +264,15 @@ def main(only=()):
             basements=[b["basements"] for b in rows], area=[b["area"] for b in rows],
             lod=[b["lod"] for b in rows], x=[b["x"] for b in rows], z=[b["z"] for b in rows],
             cell=cell_of.tolist(), slot=slot_of.tolist(),
+            flood=[b["flood"] for b in rows], floodHours=[b["flood_hours"] for b in rows], river=river,
+            fire=fire, heightDistrict=height_district, districtPlan=district_plan, landslide=landslide,
         ),
     )
     (OUT / "buildings.json").write_text(json.dumps(index, ensure_ascii=False, separators=(",", ":")))
     size = sum(p.stat().st_size for p in (OUT / "cells").glob("*.bin"))
     print(f"{len(rows)} buildings, {sum(1 for b in rows if b['name'])} named, "
-          f"{sum(1 for b in rows if b['lod'] >= 2)} LOD2, {len(keys)} cells, {size / 1e6:.1f} MB of geometry")
+          f"{sum(1 for b in rows if b['lod'] >= 2)} LOD2, {sum(1 for b in rows if b['flood'])} in a flood zone, "
+          f"{len(keys)} cells, {size / 1e6:.1f} MB of geometry")
 
 
 if __name__ == "__main__":

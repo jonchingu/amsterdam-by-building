@@ -1,10 +1,12 @@
 // Tokyo, one by one: step through the PLATEAU buildings, each framed on its own with its neighbours around it.
-// Data from pipeline/tokyo_s01_buildings.py: buildings.json (columnar index) and cells/<i>_<j>.bin (geometry).
+// Data from pipeline/tokyo_s01_buildings.py: buildings.json (columnar index) and cells/<i>_<j>.bin (geometry);
+// names, years, architects and photos from Wikidata in wiki.json (pipeline/tokyo_s02_wiki.py), when present.
 import * as THREE from '../vendor/three.module.js';
 import { OrbitControls } from '../vendor/OrbitControls.js';
 
 const DATA = '../data/tokyo/';
 let current = -1;
+const cells = new Map();
 const ROW = 44;
 const SUN = new THREE.Vector3(-0.45, 1, 0.55).normalize();
 
@@ -29,6 +31,50 @@ const members = index.cells.map(() => []);
 for (let i = 0; i < N; i++) members[C.cell[i]][C.slot[i]] = i;
 const cellXY = index.cells.map((k) => k.split('_').map(Number));
 const cellByKey = new Map(index.cells.map((k, ci) => [k, ci]));
+
+// Wikidata's name comes first: PLATEAU's 名称 is sometimes a tenant (the Grand Hyatt is filed under a police box).
+const wiki = new Array(N);
+try {
+  const r = await fetch(DATA + 'wiki.json');
+  if (r.ok) {
+    const byId = (await r.json()).buildings;
+    for (let i = 0; i < N; i++) wiki[i] = byId[idOf(i)];
+  }
+} catch { /* the viewer works without it */ }
+const nameOf = (i) => wiki[i]?.ja || C.name[i] || wiki[i]?.en || '';
+const haystack = Array.from({ length: N }, (_, i) =>
+  [nameOf(i), C.name[i], wiki[i]?.en || '', index.addresses[C.address[i]], idOf(i)].join(' ').toLowerCase());
+
+// ---------------------------------------------------------------- colour modes for the neighbours
+// Flood colours are the national hazard-map scale (水害ハザードマップ作成の手引き); eras follow the reigns.
+const MODES = {
+  plain: { title: 'Plain', bins: [] },
+  floors: { title: 'Floors', note: 'Floors above ground, from PLATEAU.', value: (i) => C.floors[i] || null, bins: [
+    ['1–2', 1, 2, '#dce8eb'], ['3–5', 3, 5, '#b3d0d8'], ['6–10', 6, 10, '#84b2c2'],
+    ['11–20', 11, 20, '#5591a8'], ['21–40', 21, 40, '#2f6f8c'], ['41 and more', 41, Infinity, '#1b4b66']] },
+  flood: { title: 'Flood', note: 'Depth under the assumed maximum rainfall, worst river basin.',
+    value: (i) => C.flood[i] || null, bins: [
+      ['Under 0.5 m', 0, 0.5, '#f7f5a9'], ['0.5–3 m', 0.5, 3, '#ffd8c0'], ['3–5 m', 3, 5, '#ffb7b7'],
+      ['5–10 m', 5, 10, '#ff9191'], ['10 m and more', 10, Infinity, '#f285c9']] },
+  fire: { title: 'Fire zone', note: 'Fire-prevention districts of the city plan.', value: (i) => C.fire[i] || null,
+    bins: index.fires.slice(1).map(([ja, en], k) => [`${en} ${ja}`, k + 1, k + 1, ['#e3b98f', '#b5653a'][k % 2]]) },
+  era: { title: 'Era', note: 'Year built or founded, from Wikidata; known for landmarks only.', value: (i) => wiki[i]?.year ?? null, bins: [
+    ['Before 1868 · Edo and earlier', -Infinity, 1867, '#6b4a2b'], ['1868–1911 Meiji', 1868, 1911, '#a5642a'],
+    ['1912–1925 Taishō', 1912, 1925, '#c99a3b'], ['1926–1944 early Shōwa', 1926, 1944, '#7f9a4a'],
+    ['1945–1988 postwar Shōwa', 1945, 1988, '#3f8f7b'], ['1989–2018 Heisei', 1989, 2018, '#3a6fa0'],
+    ['2019– Reiwa', 2019, Infinity, '#6a4f9a']] },
+};
+for (const mode of Object.values(MODES)) {
+  mode.bins = mode.bins.map(([label, lo, hi, hex]) => ({ label, lo, hi, color: new THREE.Color(hex), count: 0 }));
+  if (!mode.value) continue;
+  for (let i = 0; i < N; i++) { const b = binOf(mode, i); if (b) b.count++; }
+}
+let mode = MODES.plain;
+const plainColor = new THREE.Color();
+function binOf(m, i) {
+  const v = m.value?.(i);
+  return v == null ? null : m.bins.find((b) => v >= b.lo && v <= b.hi) || null;
+}
 
 // Metres from Tokyo Station back to latitude and longitude, for the map links.
 const [LAT0, LON0] = index.origin;
@@ -71,7 +117,7 @@ ground.position.y = -0.05;
 ground.receiveShadow = true;
 scene.add(ground);
 
-const contextMat = new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true });
+const contextMat = new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true, vertexColors: true });
 const focusMat = new THREE.MeshStandardMaterial({ roughness: 0.7, flatShading: true,
   polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 const edgeMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 });
@@ -84,7 +130,8 @@ function applyTheme() {
   scene.background.copy(token('--sky'));
   scene.fog.color.copy(token('--sky'));
   ground.material.color.copy(token('--scene-ground'));
-  contextMat.color.copy(token('--scene-context'));
+  plainColor.copy(token('--scene-context'));
+  for (const entry of cells.values()) if (entry.mesh) paintCell(entry);
   focusMat.color.copy(token('--accent'));
   edgeMat.color.copy(token('--scene-edge'));
   const dark = css.colorScheme.includes('dark');
@@ -106,8 +153,7 @@ resize();
 
 // ---------------------------------------------------------------- cells
 // A cell holds every building whose centre falls in one 500 m square; it is drawn as one mesh whose groups
-// split out the building in view, so the focus material can colour it.
-const cells = new Map();
+// split out the building in view, so the focus material can colour it. Vertex colours carry the colour mode.
 
 function loadCell(ci) {
   if (!cells.has(ci)) {
@@ -141,15 +187,50 @@ function buildCell(entry, buf) {
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geom.setIndex(new THREE.BufferAttribute(idx, 1));
+  geom.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(3 * V), 3, true));
   geom.computeVertexNormals();
   geom.computeBoundingSphere();
   const mesh = new THREE.Mesh(geom, [contextMat, focusMat]);
   mesh.castShadow = mesh.receiveShadow = true;
   mesh.userData.ci = entry.ci;
   Object.assign(entry, { mesh, local, localIdx, vStart, iStart });
+  paintCell(entry);
   scene.add(mesh);
   applyGroups(entry);
   return entry;
+}
+
+function paintCell(entry) {
+  const attr = entry.mesh.geometry.getAttribute('color'), rgb = attr.array, list = members[entry.ci];
+  for (let k = 0; k < list.length; k++) {
+    const c = binOf(mode, list[k])?.color || plainColor;
+    const r = c.r * 255, g = c.g * 255, b = c.b * 255;
+    for (let v = entry.vStart[k]; v < entry.vStart[k + 1]; v++) { rgb[3 * v] = r; rgb[3 * v + 1] = g; rgb[3 * v + 2] = b; }
+  }
+  attr.needsUpdate = true;
+}
+
+function setMode(key) {
+  mode = MODES[key];
+  $('photoImg').addEventListener('error', () => { $('photo').hidden = true; });
+for (const b of document.querySelectorAll('.modes button')) b.setAttribute('aria-pressed', b.dataset.mode === key);
+  const legend = $('legend');
+  legend.replaceChildren();
+  legend.hidden = !mode.value;
+  if (mode.value) {
+    const note = document.createElement('p');
+    note.textContent = mode.note;
+    legend.appendChild(note);
+    for (const b of mode.bins) {
+      const row = document.createElement('div');
+      row.innerHTML = '<i></i><span></span><span class="n"></span>';
+      row.children[0].style.background = `#${b.color.getHexString()}`;
+      row.children[1].textContent = b.label;
+      row.children[2].textContent = b.count.toLocaleString('en');
+      legend.appendChild(row);
+    }
+  }
+  for (const entry of cells.values()) if (entry.mesh) paintCell(entry);
 }
 
 function applyGroups(entry) {
@@ -191,7 +272,7 @@ const shuffleKey = new Float64Array(N).map(() => Math.random());
 const collator = new Intl.Collator('ja');
 
 function label(i) {
-  return C.name[i] || (addressOf(i) || idOf(i)).replace(/^東京都/, '');
+  return nameOf(i) || (addressOf(i) || idOf(i)).replace(/^東京都/, '');
 }
 
 function refilter() {
@@ -200,11 +281,11 @@ function refilter() {
   const named = $('named').checked, lod2 = $('lod2').checked;
   const keep = [];
   for (let i = 0; i < N; i++) {
-    if (named && !C.name[i]) continue;
+    if (named && !nameOf(i)) continue;
     if (lod2 && C.lod[i] < 2) continue;
     if (ward !== '' && C.ward[i] !== +ward) continue;
     if (usage !== '' && C.usage[i] !== +usage) continue;
-    if (q && !(C.name[i].toLowerCase().includes(q) || addressOf(i).includes(q) || idOf(i).includes(q))) continue;
+    if (q && !haystack[i].includes(q)) continue;
     keep.push(i);
   }
   const sort = $('sort').value;
@@ -212,7 +293,8 @@ function refilter() {
   if (sort === 'height') keep.sort((a, b) => h(b) - h(a));
   else if (sort === 'area') keep.sort((a, b) => (C.area[b] || 0) - (C.area[a] || 0) || h(b) - h(a));
   else if (sort === 'shuffle') keep.sort((a, b) => shuffleKey[a] - shuffleKey[b]);
-  else keep.sort((a, b) => (!C.name[a] - !C.name[b]) || (C.name[a] && collator.compare(C.name[a], C.name[b]))
+  else if (sort === 'year') keep.sort((a, b) => (wiki[a]?.year ?? Infinity) - (wiki[b]?.year ?? Infinity) || h(b) - h(a));
+  else keep.sort((a, b) => (!nameOf(a) - !nameOf(b)) || (nameOf(a) && collator.compare(nameOf(a), nameOf(b)))
     || C.address[a] - C.address[b] || h(b) - h(a));
   rankOf.fill(-1);
   order = Int32Array.from(keep);
@@ -254,8 +336,9 @@ function renderList() {
     el.setAttribute('aria-selected', i === current);
     el.children[0].textContent = r + 1;
     el.children[1].textContent = label(i);
-    el.children[1].classList.toggle('unnamed', !C.name[i]);
-    el.children[2].textContent = C.height[i] ? `${Math.round(C.height[i])} m` : '';
+    el.children[1].classList.toggle('unnamed', !nameOf(i));
+    el.children[2].textContent = $('sort').value === 'year' && wiki[i]?.year != null ? `${wiki[i].year}`
+      : C.height[i] ? `${Math.round(C.height[i])} m` : '';
   }
   for (let k = used; k < rows.length; k++) rows[k].hidden = true;
 }
@@ -295,17 +378,52 @@ function fact(dt, dd, ja, minor = false) {
 function updateCard(i) {
   const [, wardEn, wardJa] = wardOf(i);
   $('kicker').textContent = `${wardEn} ward · ${wardJa}`;
-  const title = $('title');
-  title.textContent = C.name[i] || 'Unnamed building';
-  title.classList.toggle('unnamed', !C.name[i]);
-  title.lang = C.name[i] ? 'ja' : 'en';
+  const w = wiki[i] || {};
+  const title = $('title'), name = nameOf(i);
+  title.textContent = name || 'Unnamed building';
+  title.classList.toggle('unnamed', !name);
+  title.lang = name && name !== w.en ? 'ja' : 'en';
+  const alt = $('alt');
+  alt.replaceChildren();
+  if (w.en && w.en !== name) alt.append(Object.assign(document.createElement('span'), { textContent: w.en, lang: 'en' }));
+  if (C.name[i] && C.name[i] !== name) {
+    alt.append(Object.assign(document.createElement('span'), { textContent: 'Listed in PLATEAU as ' }));
+    alt.lastChild.append(Object.assign(document.createElement('span'), { textContent: C.name[i], lang: 'ja' }));
+  }
+  alt.hidden = !alt.childElementCount;
+  const photo = $('photo');
+  photo.hidden = !w.image;
+  if (w.image) {
+    const file = encodeURIComponent(w.image.replaceAll(' ', '_'));
+    $('photoImg').src = `https://commons.wikimedia.org/wiki/Special:FilePath/${file}?width=640`;
+    $('photoImg').alt = w.en || name;
+    $('photoLink').href = `https://commons.wikimedia.org/wiki/File:${file}`;
+  }
   $('address').textContent = addressOf(i);
   const facts = $('facts');
   facts.replaceChildren();
   if (C.height[i]) facts.append(fact('Height', `${C.height[i].toFixed(1)} m`));
   if (C.floors[i]) facts.append(fact('Floors', C.basements[i] ? `${C.floors[i]} + ${C.basements[i]} below` : `${C.floors[i]}`));
+  if (w.year != null) facts.append(fact('Built or founded', `${w.year}`));
+  if (w.architects) facts.append(fact('Architect', w.architects.slice(0, 3).map(([en]) => en).join(', '), '', true));
   const [useJa, useEn] = index.usages[C.usage[i]];
   if (useJa) facts.append(fact('Use', useEn, useJa));
+  if (C.flood[i]) {
+    const [, river] = index.rivers[C.river[i]];
+    facts.append(fact('Flood depth', `${C.flood[i] < 0.1 ? 'under 0.1' : C.flood[i].toFixed(1)} m, ${river}`
+      + (C.floodHours[i] ? `, ${C.floodHours[i]} h` : '')));
+  }
+  const [lsJa, lsEn] = index.landslides[C.landslide[i]];
+  if (lsJa) facts.append(fact('Landslide', lsEn, lsJa));
+  const [fireJa, fireEn] = index.fires[C.fire[i]];
+  if (fireJa) facts.append(fact('Fire zone', fireEn, fireJa, true));
+  const [hdJa, hdEn] = index.heightDistricts[C.heightDistrict[i]];
+  if (hdJa) facts.append(fact('Height limit', hdEn, hdJa, true));
+  const plan = index.districtPlans[C.districtPlan[i]];
+  if (plan) {
+    facts.append(fact('District plan', plan, '', true));
+    facts.lastChild.lang = 'ja';
+  }
   const [strJa, strEn] = index.structures[C.structure[i]];
   if (strJa) facts.append(fact('Structure', strEn, strJa, true));
   if (C.area[i]) facts.append(fact('Footprint', `${Math.round(C.area[i]).toLocaleString('en')} m²`, '', true));
@@ -314,10 +432,14 @@ function updateCard(i) {
   const [lat, lon] = latLon(i).map((v) => v.toFixed(6));
   const links = $('links');
   links.replaceChildren();
+  const wp = (lang, title) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(' ', '_'))}`;
   for (const [text, href] of [
+    w.jawiki && ['Wikipedia (ja)', wp('ja', w.jawiki)],
+    w.enwiki && ['Wikipedia (en)', wp('en', w.enwiki)],
+    w.wd && ['Wikidata', `https://www.wikidata.org/wiki/${w.wd}`],
     ['OpenStreetMap', `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=19/${lat}/${lon}`],
     ['Google Maps', `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`],
-  ]) {
+  ].filter(Boolean)) {
     const a = document.createElement('a');
     a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text;
     links.appendChild(a);
@@ -454,6 +576,7 @@ $('listToggle').addEventListener('click', () => {
   $('listToggle').setAttribute('aria-expanded', open);
   if (open) scrollToCurrent();
 });
+for (const b of document.querySelectorAll('.modes button')) b.addEventListener('click', () => setMode(b.dataset.mode));
 let typing;
 $('search').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(refilter, 150); });
 for (const id of ['ward', 'usage', 'sort', 'named', 'lod2']) $(id).addEventListener('change', refilter);

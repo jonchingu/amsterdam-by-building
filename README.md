@@ -52,11 +52,16 @@ The address bar keeps the building's PLATEAU id, so a link opens on it.
 
 The buildings come from [Project PLATEAU](https://www.mlit.go.jp/plateau/), the national 3D city model by Japan's
 Ministry of Land, Infrastructure, Transport and Tourism (2020 Tokyo 23 wards, 3D Tiles without textures).
-`tokyo_s01_buildings` cuts every building out of the tiles by its batch id and moves it to metres around Tokyo Station.
+`tokyo_s01_buildings` cuts every building out of the tiles by its batch id and moves it to metres around Tokyo Station,
+keeping PLATEAU's flood depth, fire zone and planning districts. `tokyo_s02_wiki` matches Wikidata buildings to their
+footprints for names, years, architects and photos. The neighbours can be coloured by floors, flood depth, fire zone or
+era (Edo to Reiwa, for the landmarks Wikidata dates). [docs/tokyo-data-sources.md](docs/tokyo-data-sources.md) compares
+what Tokyo's open data offers with Amsterdam's.
 
 ```bash
 uv run python -m pipeline.tokyo_s00_fetch          # Chiyoda, Chūō, Minato, Shinjuku, Shibuya (~200 MB); `all` for 23 wards
 uv run python -m pipeline.tokyo_s01_buildings      # → web/data/tokyo/: 146,784 buildings for the five central wards
+uv run python -m pipeline.tokyo_s02_wiki           # → web/data/tokyo/wiki.json: 1,444 buildings matched to Wikidata
 python3 -m http.server 8642 --directory web        # http://localhost:8642/tokyo/
 ```
 
@@ -76,5 +81,5 @@ python3 -m http.server 8642 --directory web        # http://localhost:8642/tokyo
 Code: MIT (see [LICENSE](LICENSE)). Data keeps the licence of its source: 3D BAG CC BY 4.0; BAG, BGT, RCE, Wikidata and
 most City of Amsterdam data CC0; some city datasets and the street panoramas CC BY 4.0; Wikipedia text CC BY-SA;
 Wikimedia Commons photos each under their own licence, credited in the app. PLATEAU 3D city models: PLATEAU Site
-Policy (CC BY 4.0 compatible), credit 3D都市モデル（Project PLATEAU）国土交通省. Stadsarchief Amsterdam photos are
+Policy (CC BY 4.0 compatible), credit 3D都市モデル（Project PLATEAU）国土交通省; Wikidata CC0. Stadsarchief Amsterdam photos are
 shown from the archive's image server and link to their records; the app stores only their identifiers.

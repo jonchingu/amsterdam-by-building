@@ -18,6 +18,16 @@
 </header>
 
 <aside class="browse" aria-label="Buildings">
+  <div class="colour">
+    <div class="modes" role="group" aria-label="Colour the neighbours by">
+      <button data-mode="plain" aria-pressed="true">Plain</button>
+      <button data-mode="floors" aria-pressed="false">Floors</button>
+      <button data-mode="flood" aria-pressed="false">Flood</button>
+      <button data-mode="fire" aria-pressed="false">Fire zone</button>
+      <button data-mode="era" aria-pressed="false">Era</button>
+    </div>
+    <div class="legend" id="legend" hidden></div>
+  </div>
   <div class="filters">
     <input id="search" type="search" placeholder="Search name or address" aria-label="Search buildings by name or address" autocomplete="off">
     <div class="row">
@@ -28,6 +38,7 @@
       <select id="sort" aria-label="Order">
         <option value="height">Tallest first</option>
         <option value="area">Largest footprint</option>
+        <option value="year">Oldest first</option>
         <option value="name">By name</option>
         <option value="shuffle">Shuffled</option>
       </select>
@@ -40,8 +51,13 @@
 </aside>
 
 <section class="card" id="card" aria-live="polite">
+  <figure class="photo" id="photo" hidden>
+    <img id="photoImg" alt="" loading="lazy">
+    <figcaption><a id="photoLink" target="_blank" rel="noopener">Photo: Wikimedia Commons</a></figcaption>
+  </figure>
   <p class="kicker" id="kicker"></p>
   <h2 id="title" lang="ja"></h2>
+  <p class="alt" id="alt" hidden></p>
   <p class="address" id="address" lang="ja"></p>
   <dl id="facts"></dl>
   <p class="links" id="links"></p>
@@ -57,7 +73,7 @@
   <button id="listToggle" class="only-narrow" aria-expanded="false" aria-controls="list">List</button>
 </nav>
 
-<p class="credit">3D city model: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">Project PLATEAU</a>, MLIT Japan (2020)</p>
+<p class="credit">3D city model: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">Project PLATEAU</a>, MLIT Japan (2020). Names, years and photos: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a>, Wikimedia Commons.</p>
 <p class="status" id="status">Loading the city…</p>
 
 <script type="module" src="tokyo.js"></script>
