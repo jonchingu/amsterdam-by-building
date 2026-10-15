@@ -28,12 +28,24 @@ Reachability was tested from the cloud environment this pipeline was built in; a
 - **Tokyo Station** is the same: its Wikidata point lands on a platform roof, and PLATEAU files the Marunouchi
   station building under the police box in front of it. `tokyo_wiki_fixes.py` pins the item to the right building.
 - **Demolished buildings** are left out of the Wikidata query (items with a dissolved or demolished date, P576).
-- **Newer PLATEAU releases add little for the central wards.** The 23 wards' latest release is 2022
-  (`plateau-tokyo23ku-2022` on geospatial.jp; its CityGML and 3D Tiles sit on `assets.cms.plateau.reearth.io`, which the
-  cloud environment blocks). Its notes give the same LOD2 areas as 2020 plus Itabashi: 35.02 km² against 32.02 km², of
-  627.57 km². The one part of it on the reachable mirror, the Takeshiba grid square (53393680) that ships with the LOD4
-  model, has the same 993 LOD2 buildings out of 1,485 as the 2020 data, and no construction year
-  (`bldg:yearOfConstruction`) on any of them.
+- **Newer models are published per ward, and go further.** After the 23-ward releases of 2020 and 2022 (the 2022 one
+  adds only Itabashi to the LOD2 areas; its Takeshiba square, on the reachable mirror, matches 2020 and has no
+  construction year), the Tokyo Metropolitan Government's "3D digital map" (都市の3Dデジタルマップ, CC BY) came out ward
+  by ward for 2023 and 2025, as `plateau-13101-chiyoda-ku-2025` and so on. Their building models, as the release notes
+  list them:
+
+  | Ward | 2023 | 2025 |
+  |---|---|---|
+  | Chiyoda | LOD0, 1, 2.0 | LOD0, 1, 2.0 |
+  | Chūō, Shinjuku, Shibuya | LOD0, 1, 2.0, 2.2 | LOD0, 1, 2.0, 2.2 |
+  | Minato | LOD0, 1, 2.0, 2.2, 3.0 (and 4.0 in the v3 files) | LOD0, 1, 2.0, 2.2, 3.0 |
+
+  All of them sit on `assets.cms.plateau.reearth.io`, which the cloud environment blocks, so how many buildings reach
+  LOD2 or LOD3, and whether they carry a construction year, is not yet known.
+- **Tokyo's aerial LiDAR** (東京都デジタルツイン 区部点群データ, 2024, CC BY) is reachable: 400 × 300 m sheets of
+  about 6 million points with RGB colour (about 50 per m²), 114 MB zipped each, on `gic-tokyo.s3.ap-northeast-1.amazonaws.com`
+  and indexed by vector tiles. Aerial points catch roofs well and walls sparsely: enough to show the real shape of a
+  building that PLATEAU only has as a block, such as Yoyogi National Gymnasium's suspended roof.
 - **LOD4** exists for one building, Tokyo Port City Takeshiba (2022, converted from the builder's BIM model): 40 floors,
   1,092 rooms, on the mirror under `2022/plateau-tokyo23ku-2023-lod4/`.
 
