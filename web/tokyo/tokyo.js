@@ -34,16 +34,22 @@ const cellByKey = new Map(index.cells.map((k, ci) => [k, ci]));
 
 // Wikidata's name comes first: PLATEAU's 名称 is sometimes a tenant (the Grand Hyatt is filed under a police box).
 const wiki = new Array(N);
+let heritageLevels = [];
 try {
   const r = await fetch(DATA + 'wiki.json');
   if (r.ok) {
-    const byId = (await r.json()).buildings;
-    for (let i = 0; i < N; i++) wiki[i] = byId[idOf(i)];
+    const data = await r.json();
+    heritageLevels = data.heritageLevels || [];
+    for (let i = 0; i < N; i++) wiki[i] = data.buildings[idOf(i)];
   }
 } catch { /* the viewer works without it */ }
 const nameOf = (i) => wiki[i]?.ja || C.name[i] || wiki[i]?.en || '';
-const haystack = Array.from({ length: N }, (_, i) =>
-  [nameOf(i), C.name[i], wiki[i]?.en || '', index.addresses[C.address[i]], idOf(i)].join(' ').toLowerCase());
+const labels = (list) => (list || []).flat().filter((v) => typeof v === 'string');
+const haystack = Array.from({ length: N }, (_, i) => {
+  const w = wiki[i] || {};
+  return [nameOf(i), C.name[i], w.en || '', index.addresses[C.address[i]], idOf(i),
+    ...labels(w.types), ...labels(w.styles), ...labels(w.heritage)].join(' ').toLowerCase();
+});
 
 // ---------------------------------------------------------------- colour modes for the neighbours
 // Flood colours are the national hazard-map scale (水害ハザードマップ作成の手引き); eras follow the reigns.
@@ -58,6 +64,10 @@ const MODES = {
       ['5–10 m', 5, 10, '#ff9191'], ['10 m and more', 10, Infinity, '#f285c9']] },
   fire: { title: 'Fire zone', note: 'Fire-prevention districts of the city plan.', value: (i) => C.fire[i] || null,
     bins: index.fires.slice(1).map(([ja, en], k) => [`${en} ${ja}`, k + 1, k + 1, ['#e3b98f', '#b5653a'][k % 2]]) },
+  heritage: { title: 'Heritage', note: 'Highest heritage designation, from Wikidata.',
+    value: (i) => wiki[i]?.heritage?.[0]?.[2] ?? null,
+    bins: heritageLevels.map((label, k) => [label, k, k,
+      ['#5e1846', '#8e2f68', '#c0679a', '#3f5aa6', '#7f95d1', '#a99f8c'][k] || '#a99f8c']) },
   era: { title: 'Era', note: 'Year built or founded, from Wikidata; known for landmarks only.', value: (i) => wiki[i]?.year ?? null, bins: [
     ['Before 1868 · Edo and earlier', -Infinity, 1867, '#6b4a2b'], ['1868–1911 Meiji', 1868, 1911, '#a5642a'],
     ['1912–1925 Taishō', 1912, 1925, '#c99a3b'], ['1926–1944 early Shōwa', 1926, 1944, '#7f9a4a'],
@@ -221,7 +231,7 @@ for (const b of document.querySelectorAll('.modes button')) b.setAttribute('aria
     const note = document.createElement('p');
     note.textContent = mode.note;
     legend.appendChild(note);
-    for (const b of mode.bins) {
+    for (const b of mode.bins.filter((bin) => bin.count)) {
       const row = document.createElement('div');
       row.innerHTML = '<i></i><span></span><span class="n"></span>';
       row.children[0].style.background = `#${b.color.getHexString()}`;
@@ -278,11 +288,12 @@ function label(i) {
 function refilter() {
   const q = $('search').value.trim().toLowerCase();
   const ward = $('ward').value, usage = $('usage').value;
-  const named = $('named').checked, lod2 = $('lod2').checked;
+  const named = $('named').checked, lod2 = $('lod2').checked, heritage = $('heritageOnly').checked;
   const keep = [];
   for (let i = 0; i < N; i++) {
     if (named && !nameOf(i)) continue;
     if (lod2 && C.lod[i] < 2) continue;
+    if (heritage && !wiki[i]?.heritage) continue;
     if (ward !== '' && C.ward[i] !== +ward) continue;
     if (usage !== '' && C.usage[i] !== +usage) continue;
     if (q && !haystack[i].includes(q)) continue;
@@ -406,6 +417,9 @@ function updateCard(i) {
   if (C.floors[i]) facts.append(fact('Floors', C.basements[i] ? `${C.floors[i]} + ${C.basements[i]} below` : `${C.floors[i]}`));
   if (w.year != null) facts.append(fact('Built or founded', `${w.year}`));
   if (w.architects) facts.append(fact('Architect', w.architects.slice(0, 3).map(([en]) => en).join(', '), '', true));
+  if (w.types) facts.append(fact('Type', w.types.slice(0, 2).map(([en]) => en).join(', '), w.types[0][1]));
+  if (w.styles) facts.append(fact('Style', w.styles.slice(0, 2).map(([en]) => en).join(', '), w.styles[0][1], true));
+  for (const [en, ja] of (w.heritage || []).slice(0, 2)) facts.append(fact('Heritage', en, ja));
   const [useJa, useEn] = index.usages[C.usage[i]];
   if (useJa) facts.append(fact('Use', useEn, useJa));
   if (C.flood[i]) {
@@ -433,7 +447,10 @@ function updateCard(i) {
   const links = $('links');
   links.replaceChildren();
   const wp = (lang, title) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(' ', '_'))}`;
+  showSummary(i, w);
   for (const [text, href] of [
+    w.site && ['Website', w.site],
+    w.commons && ['More photos', `https://commons.wikimedia.org/wiki/Category:${encodeURIComponent(w.commons.replaceAll(' ', '_'))}`],
     w.jawiki && ['Wikipedia (ja)', wp('ja', w.jawiki)],
     w.enwiki && ['Wikipedia (en)', wp('en', w.enwiki)],
     w.wd && ['Wikidata', `https://www.wikidata.org/wiki/${w.wd}`],
@@ -444,6 +461,42 @@ function updateCard(i) {
     a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = text;
     links.appendChild(a);
   }
+}
+
+// A few sentences on the building: Wikipedia's summary, fetched by the browser (English first, the interface's
+// language), else Wikidata's one-line description.
+const summaries = new Map();
+function showSummary(i, w) {
+  const el = $('summary'), src = $('summarySource');
+  const fallback = w.descEn || w.descJa || '';
+  el.textContent = fallback;
+  el.lang = w.descEn ? 'en' : 'ja';
+  src.replaceChildren(fallback ? 'Wikidata' : '');
+  $('about').hidden = !fallback;
+  const lang = w.enwiki ? 'en' : w.jawiki ? 'ja' : null;
+  if (!lang) return;
+  const title = (lang === 'en' ? w.enwiki : w.jawiki).replaceAll(' ', '_');
+  const key = `${lang}:${title}`;
+  if (!summaries.has(key)) {
+    summaries.set(key, fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => (d && d.type === 'standard' && d.extract ? d : null))
+      .catch(() => null));
+  }
+  summaries.get(key).then((d) => {
+    if (!d || current !== i) return;
+    const sentences = d.extract.match(/[^.!?。]+[.!?。]+["”」]?\s*/g) || [d.extract];
+    let text = '';
+    for (const s of sentences) { if (text && (text + s).length > 420) break; text += s; }
+    el.textContent = text.trim();
+    el.lang = lang;
+    const a = Object.assign(document.createElement('a'), {
+      href: d.content_urls?.desktop?.page || `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title)}`,
+      target: '_blank', rel: 'noopener', textContent: `Wikipedia (${lang})`,
+    });
+    src.replaceChildren('From ', a, ', CC BY-SA');
+    $('about').hidden = false;
+  });
 }
 
 // ---------------------------------------------------------------- showing a building
@@ -579,7 +632,7 @@ $('listToggle').addEventListener('click', () => {
 for (const b of document.querySelectorAll('.modes button')) b.addEventListener('click', () => setMode(b.dataset.mode));
 let typing;
 $('search').addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(refilter, 150); });
-for (const id of ['ward', 'usage', 'sort', 'named', 'lod2']) $(id).addEventListener('change', refilter);
+for (const id of ['ward', 'usage', 'sort', 'named', 'lod2', 'heritageOnly']) $(id).addEventListener('change', refilter);
 addEventListener('keydown', (e) => {
   if (e.target.closest('input, select')) { if (e.key === 'Escape') e.target.blur(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;

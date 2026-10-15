@@ -79,11 +79,15 @@ h1::after { content: ""; display: inline-block; width: .22em; height: .22em; mar
 /* Card: what the building is. */
 .card { position: fixed; right: var(--gutter); top: calc(env(safe-area-inset-top, 0px) + var(--gutter));
   width: var(--side); background: var(--paper); border-radius: 10px; padding: 14px 16px;
-  max-height: calc(100vh - 2 * var(--gutter) - 80px); overflow-y: auto; overscroll-behavior: contain; }
+  max-height: calc(100vh - 2 * var(--gutter) - 130px); overflow-y: auto; overscroll-behavior: contain; }
 .kicker { margin: 0; color: var(--muted); font-size: 12px; }
 .card h2 { margin: 2px 0 2px; font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; }
 .card h2.unnamed { color: var(--muted); font-weight: 500; font-family: "Schibsted Grotesk", sans-serif; }
 .address { margin: 0 0 10px; color: var(--muted); }
+.about { margin: 0 0 10px; }
+.summary { margin: 0; line-height: 1.45; }
+.source { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+.source a { color: inherit; }
 .alt { margin: 0 0 2px; display: grid; color: var(--muted); font-size: 13px; }
 .photo { margin: -4px -6px 10px; }
 .photo img { display: block; width: 100%; height: 170px; object-fit: cover; border-radius: 6px; background: var(--hover); }
@@ -132,5 +136,6 @@ h1::after { content: ""; display: inline-block; width: .22em; height: .22em; mar
   .pos { min-width: 0; flex: 1; font-size: 11px; }
   .card .minor { display: none; }
   .card .photo { display: none; }
+  .card .about { display: none; }
   .browse.open ~ .card { display: none; }
 }

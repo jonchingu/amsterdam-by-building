@@ -24,6 +24,7 @@
       <button data-mode="floors" aria-pressed="false">Floors</button>
       <button data-mode="flood" aria-pressed="false">Flood</button>
       <button data-mode="fire" aria-pressed="false">Fire zone</button>
+      <button data-mode="heritage" aria-pressed="false">Heritage</button>
       <button data-mode="era" aria-pressed="false">Era</button>
     </div>
     <div class="legend" id="legend" hidden></div>
@@ -44,6 +45,7 @@
       </select>
       <label class="check"><input id="named" type="checkbox"> Named</label>
       <label class="check"><input id="lod2" type="checkbox"> Detailed roofs</label>
+      <label class="check"><input id="heritageOnly" type="checkbox"> Heritage</label>
     </div>
   </div>
   <p class="count" id="count" aria-live="polite"></p>
@@ -59,6 +61,10 @@
   <h2 id="title" lang="ja"></h2>
   <p class="alt" id="alt" hidden></p>
   <p class="address" id="address" lang="ja"></p>
+  <div class="about" id="about" hidden>
+    <p class="summary" id="summary"></p>
+    <p class="source" id="summarySource"></p>
+  </div>
   <dl id="facts"></dl>
   <p class="links" id="links"></p>
 </section>
@@ -73,7 +79,7 @@
   <button id="listToggle" class="only-narrow" aria-expanded="false" aria-controls="list">List</button>
 </nav>
 
-<p class="credit">3D city model: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">Project PLATEAU</a>, MLIT Japan (2020). Names, years and photos: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a>, Wikimedia Commons.</p>
+<p class="credit">3D city model: <a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">Project PLATEAU</a>, MLIT Japan (2020). Names, years, heritage and photos: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a>, Wikimedia Commons; summaries: Wikipedia.</p>
 <p class="status" id="status">Loading the city…</p>
 
 <script type="module" src="tokyo.js"></script>
