@@ -43,6 +43,36 @@ python3 -m http.server 8642 --directory web
 
 Raw downloads (`data/`) and generated output (`web/data/`) are not in the repository: they are large and rebuilt by the pipeline.
 
+## Tokyo, one by one
+
+A second viewer, `web/tokyo/`, steps through Tokyo's buildings one at a time: each is framed on its own, in vermilion
+among its grey neighbours, with its name, use, height, floors and structure. Order them by height, footprint or name,
+filter by ward, use or name, step with ← → (R for a random one, A to hide the neighbours), or click a neighbour.
+The address bar keeps the building's PLATEAU id, so a link opens on it.
+
+The buildings come from [Project PLATEAU](https://www.mlit.go.jp/plateau/), the national 3D city model by Japan's
+Ministry of Land, Infrastructure, Transport and Tourism (2020 Tokyo 23 wards, 3D Tiles without textures).
+`tokyo_s01_buildings` cuts every building out of the tiles by its batch id and moves it to metres around Tokyo Station,
+keeping PLATEAU's flood depth, fire zone and planning districts. `tokyo_s02_wiki` matches Wikidata buildings to their
+footprints for names, years, architects, types, styles, heritage status, awards and photos; `tokyo_wiki_fixes.py`
+holds the matches and completion years corrected by hand. The card adds a Wikipedia summary, fetched by the browser.
+The neighbours can be coloured by floors, flood depth, fire zone or era (Edo to Reiwa, for the landmarks Wikidata dates).
+
+Context layers work as Amsterdam's do: `pipeline/tokyo_layers.py` defines each with the same `@layer` decorator, and
+`tokyo_s03_layers` resolves them to buildings. Opening a layer colours its buildings by group and narrows the list to
+them, so the stepper walks through the layer; the card says which layers a building is in, and why. Three so far, all
+from Wikidata: protected heritage, architects (from the Meiji pioneers to today's design firms) and prize-winning
+buildings. [docs/tokyo-data-sources.md](docs/tokyo-data-sources.md) compares what Tokyo's open data offers with
+Amsterdam's.
+
+```bash
+uv run python -m pipeline.tokyo_s00_fetch          # Chiyoda, Chūō, Minato, Shinjuku, Shibuya (~200 MB); `all` for 23 wards
+uv run python -m pipeline.tokyo_s01_buildings      # → web/data/tokyo/: 146,784 buildings for the five central wards
+uv run python -m pipeline.tokyo_s02_wiki           # → web/data/tokyo/wiki.json: 1,442 buildings matched to Wikidata
+uv run python -m pipeline.tokyo_s03_layers         # → web/data/tokyo/layers.json: heritage, architects, prizes
+python3 -m http.server 8642 --directory web        # http://localhost:8642/tokyo/
+```
+
 ## Data decisions
 
 - **Years.** BAG gives every building a construction year but not always a true one: 729 carry the placeholder 1005,
@@ -58,5 +88,6 @@ Raw downloads (`data/`) and generated output (`web/data/`) are not in the reposi
 
 Code: MIT (see [LICENSE](LICENSE)). Data keeps the licence of its source: 3D BAG CC BY 4.0; BAG, BGT, RCE, Wikidata and
 most City of Amsterdam data CC0; some city datasets and the street panoramas CC BY 4.0; Wikipedia text CC BY-SA;
-Wikimedia Commons photos each under their own licence, credited in the app. Stadsarchief Amsterdam photos are
+Wikimedia Commons photos each under their own licence, credited in the app. PLATEAU 3D city models: PLATEAU Site
+Policy (CC BY 4.0 compatible), credit 3D都市モデル（Project PLATEAU）国土交通省; Wikidata CC0. Stadsarchief Amsterdam photos are
 shown from the archive's image server and link to their records; the app stores only their identifiers.
