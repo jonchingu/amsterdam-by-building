@@ -6,8 +6,6 @@ import { OrbitControls } from '../vendor/OrbitControls.js';
 const DATA = '../data/tokyo/';
 let current = -1;
 const ROW = 44;
-const SKY = 0xe6e8ea;
-const ACCENT = 0xe0401f;
 const SUN = new THREE.Vector3(-0.45, 1, 0.55).normalize();
 
 const $ = (id) => document.getElementById(id);
@@ -47,17 +45,19 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 200, 800);
+scene.background = new THREE.Color();
+scene.fog = new THREE.Fog(0, 200, 800);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 30000);
 camera.position.set(-150, 120, 200);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.495;
-controls.autoRotate = true;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+controls.autoRotate = !reducedMotion;
 controls.autoRotateSpeed = 0.7;
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0xb8bec3, 1.7));
+const hemi = new THREE.HemisphereLight(0xffffff, 0xb8bec3, 1.7);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 2.1);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -65,17 +65,35 @@ sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.4;
 scene.add(sun, sun.target);
 
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000), new THREE.MeshStandardMaterial({ color: 0xf2f3f4, roughness: 1 }));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000), new THREE.MeshStandardMaterial({ roughness: 1 }));
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.05;
 ground.receiveShadow = true;
 scene.add(ground);
 
-const contextMat = new THREE.MeshStandardMaterial({ color: 0xd3d7da, roughness: 0.9, flatShading: true });
-const focusMat = new THREE.MeshStandardMaterial({ color: ACCENT, roughness: 0.7, flatShading: true,
+const contextMat = new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true });
+const focusMat = new THREE.MeshStandardMaterial({ roughness: 0.7, flatShading: true,
   polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-const edgeMat = new THREE.LineBasicMaterial({ color: 0x3a0d03, transparent: true, opacity: 0.5 });
+const edgeMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 });
 let edges = null;
+
+// Colours come from the page's CSS tokens, so the scene follows the light or dark theme.
+function applyTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name) => new THREE.Color(css.getPropertyValue(name).trim());
+  scene.background.copy(token('--sky'));
+  scene.fog.color.copy(token('--sky'));
+  ground.material.color.copy(token('--scene-ground'));
+  contextMat.color.copy(token('--scene-context'));
+  focusMat.color.copy(token('--accent'));
+  edgeMat.color.copy(token('--scene-edge'));
+  const dark = css.colorScheme.includes('dark');
+  hemi.intensity = dark ? 0.9 : 1.7;
+  sun.intensity = dark ? 1.4 : 2.1;
+}
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
@@ -316,7 +334,7 @@ async function show(i, { fly = true } = {}) {
   updateCard(i);
   updatePos();
   scrollToCurrent();
-  history.replaceState(null, '', `#${idOf(i)}`);
+  try { history.replaceState(null, '', `#${idOf(i)}`); } catch { /* a sandboxed frame may refuse */ }
   const ci = C.cell[i];
   for (const entry of cells.values()) if (entry.mesh) applyGroups(entry);
   if (!cells.get(ci)?.mesh) statusEl.textContent = 'Loading…';
@@ -380,7 +398,7 @@ function frame(entry, i, fly) {
   target.y = Math.min(target.y, box.max.y * 0.45);
   spherical.setFromVector3(camera.position.clone().sub(controls.target));
   const phi = THREE.MathUtils.clamp(spherical.phi, THREE.MathUtils.degToRad(40), THREE.MathUtils.degToRad(64));
-  flight = { t0: performance.now(), dur: fly ? 900 : 0, fromTarget: controls.target.clone(), toTarget: target,
+  flight = { t0: performance.now(), dur: fly && !reducedMotion ? 900 : 0, fromTarget: controls.target.clone(), toTarget: target,
     fromRadius: spherical.radius, toRadius: radius, fromPhi: spherical.phi, toPhi: phi };
   scene.fog.near = radius * 1.4;
   scene.fog.far = radius * 4 + 250;
@@ -425,6 +443,7 @@ canvas.addEventListener('pointerup', (e) => {
 function toggle(id, on) {
   $(id).setAttribute('aria-pressed', on);
 }
+toggle('spin', controls.autoRotate);
 $('prev').addEventListener('click', () => step(-1));
 $('next').addEventListener('click', () => step(1));
 $('random').addEventListener('click', () => order.length && show(order[Math.floor(Math.random() * order.length)]));

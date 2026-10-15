@@ -1,14 +1,31 @@
 /* Tokyo: one white model at a time under a grey sky, the building in view in vermilion. */
+/* The scene takes its colours from the --scene-* tokens (read in tokyo.js), so both themes cover the model too. */
 :root {
   --sky: #e6e8ea;
   --paper: #ffffff;
   --ink: #111111;
   --muted: #5f6468;
   --rule: #d3d8db;
+  --hover: #f1f3f4;
+  --on-ink-muted: #b9bdc0;
   --accent: #e0401f;
+  --scene-ground: #f2f3f4;
+  --scene-context: #d3d7da;
+  --scene-edge: #3a0d03;
+  color-scheme: light;
   --gutter: clamp(16px, 2.4vw, 28px);
   --side: min(320px, calc(100vw - 2 * var(--gutter)));
   font: 400 14px/1.45 "Schibsted Grotesk", "Helvetica Neue", Arial, "Noto Sans JP", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --sky: #15181a; --paper: #202427; --ink: #eef0f1; --muted: #9ba2a7; --rule: #353b40; --hover: #2a2f33;
+  --on-ink-muted: #5f6468; --accent: #f05a36; --scene-ground: #1b1e21; --scene-context: #59616a; --scene-edge: #2b0800;
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --sky: #15181a; --paper: #202427; --ink: #eef0f1; --muted: #9ba2a7; --rule: #353b40; --hover: #2a2f33;
+  --on-ink-muted: #5f6468; --accent: #f05a36; --scene-ground: #1b1e21; --scene-context: #59616a; --scene-edge: #2b0800;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--sky); color: var(--ink); overflow: hidden; }
@@ -38,15 +55,15 @@ h1::after { content: ""; display: inline-block; width: .22em; height: .22em; mar
 .list { position: relative; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
 .list .spacer { width: 1px; }
 .item { position: absolute; left: 0; right: 0; height: 44px; display: grid; grid-template-columns: 54px 1fr auto;
-  align-items: center; gap: 8px; padding: 0 12px; cursor: pointer; border-bottom: 1px solid #f0f2f3; }
+  align-items: center; gap: 8px; padding: 0 12px; cursor: pointer; border-bottom: 1px solid var(--hover); }
 .item[hidden] { display: none; }
-.item:hover { background: #f5f6f7; }
+.item:hover { background: var(--hover); }
 .item[aria-selected="true"] { background: var(--ink); color: var(--paper); }
 .item .rank { color: var(--muted); font-size: 12px; }
-.item[aria-selected="true"] .rank { color: #b9bdc0; }
+.item[aria-selected="true"] .rank { color: var(--on-ink-muted); }
 .item .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item .label.unnamed { color: var(--muted); }
-.item[aria-selected="true"] .label.unnamed { color: #d9dcde; }
+.item[aria-selected="true"] .label.unnamed { color: var(--on-ink-muted); }
 .item .metric { font-size: 12px; }
 
 /* Card: what the building is. */
@@ -67,7 +84,7 @@ h1::after { content: ""; display: inline-block; width: .22em; height: .22em; mar
 .stepper { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--gutter)); left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 2px; background: var(--paper); border-radius: 999px; padding: 4px; box-shadow: 0 1px 0 var(--rule); }
 .stepper button { border: 0; background: none; padding: 8px 14px; border-radius: 999px; cursor: pointer; font-weight: 500; min-height: 40px; }
-.stepper button:hover { background: #f0f2f3; }
+.stepper button:hover { background: var(--hover); }
 .stepper #prev, .stepper #next { font-size: 22px; line-height: 1; width: 44px; padding: 0; }
 .stepper button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .pos { min-width: 112px; text-align: center; color: var(--muted); white-space: nowrap; }

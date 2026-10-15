@@ -12,9 +12,11 @@ Output (web/data/tokyo/):
   Indices count from each building's first vertex.
 
     uv run python -m pipeline.tokyo_s01_buildings              # every ward fetched by tokyo_s00_fetch
+    uv run python -m pipeline.tokyo_s01_buildings 13101 13102  # only these
 """
 import json
 import struct
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -161,9 +163,10 @@ def buildings_of(tile: Path, origin, rot):
         )
 
 
-def main():
+def main(only=()):
     origin, rot = enu_frame(*ORIGIN)
-    fetched = [c for c in WARDS if (RAW / f"{c}_{WARDS[c][0]}_notexture" / "tileset.json").exists()]
+    fetched = [c for c in WARDS if (RAW / f"{c}_{WARDS[c][0]}_notexture" / "tileset.json").exists()
+               and (not only or c in only)]
     if not fetched:
         raise SystemExit("no wards in data/tokyo: run pipeline.tokyo_s00_fetch first")
     seen, rows = set(), []
@@ -230,4 +233,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
