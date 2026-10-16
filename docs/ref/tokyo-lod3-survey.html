@@ -87,7 +87,7 @@ code { font-family: var(--font-mono); font-size: 0.85em; }
 .v-card dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .v-hud { position: absolute; left: 12px; bottom: 12px; font-family: var(--font-mono); font-size: 0.72rem; font-variant-numeric: tabular-nums; color: var(--muted); background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 8px; max-width: calc(100% - 24px); }
 .v-pad { position: absolute; right: 12px; top: 12px; display: grid; grid-template-columns: repeat(4, 34px); gap: 4px; }
-.v-pad button { width: 34px; height: 34px; border-radius: 6px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); font-size: 15px; line-height: 1; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+.v-pad button { width: 34px; height: 34px; border-radius: 6px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); font-size: 15px; line-height: 1; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .v-pad button:active { border-color: var(--accent); color: var(--accent); }
 .v-pad button:focus-visible, .viewer canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .keys kbd { font-family: var(--font-mono); font-size: 0.78rem; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; margin: 0 2px; background: var(--sheet); color: var(--ink); }
@@ -317,6 +317,7 @@ for (const [la, lo, t, anchor, dx, dy] of LABELS) {
   const RAD = Math.PI / 180;
   const ZOOM_RANGE = { min: 40, max: 2500 };                  // MKMapView.CameraZoomRange
   const BOUNDARY = { min: P(35.6615, 139.7440), max: P(35.6715, 139.7610) }; // MKMapView.CameraBoundary: keeps the centre over the tiles
+  const CENTRE_CEILING = 300;                                  // centre stays below this height (m above street); the towers top out at 265 m
   controls.minDistance = ZOOM_RANGE.min; controls.maxDistance = ZOOM_RANGE.max;
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   // Pitch allowed shrinks as the camera pulls back, as Apple Maps flattens a zoomed-out map.
@@ -337,9 +338,12 @@ for (const [la, lo, t, anchor, dx, dy] of LABELS) {
     controls.maxPolarAngle = maxPitch(d) * RAD;                         // before update(), or it clamps to the old limit
     controls.update(); redraw();
   }
-  // Applied after every move: zoom range, distance-dependent pitch, centre boundary, eye above street.
+  // Applied after every move: zoom range, distance-dependent pitch, centre boundary and ceiling, eye above street.
+  // The ceiling keeps the zoom range meaningful: a drone climb lifts the centre with the eye until it reaches the ceiling,
+  // then only the eye rises, tilting down until the zoom range stops it.
   function constrain() {
     const t = controls.target, b = BOUNDARY;
+    t.y = clamp(t.y, groundY, groundY + CENTRE_CEILING);
     const cx = clamp(t.x, b.min.x, b.max.x), cz = clamp(t.z, b.max.z, b.min.z);
     if (cx !== t.x || cz !== t.z) { const dx = cx - t.x, dz = cz - t.z; t.x += dx; t.z += dz; camera.position.x += dx; camera.position.z += dz; }
     controls.maxPolarAngle = maxPitch(getCam().distance) * RAD;
@@ -349,15 +353,17 @@ for (const [la, lo, t, anchor, dx, dy] of LABELS) {
   // ---- Animated camera moves (MapKit: setCamera(_:animated:), mapCameraKeyframeAnimator) ----
   // A gesture or key press cancels a running move, as MapKit drops the keyframe animation when the person takes over.
   let anim = null;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   function flyTo(to, ms) {
+    if (reduceMotion.matches) { anim = null; setCam(to); return; }   // no flight: cut straight to the view
     const from = getCam(), travel = from.center.distanceTo(to.center);
     let dh = ((to.heading - from.heading + 540) % 360) - 180;          // turn the short way round
     const lift = Math.min(travel * 0.5, 900);                           // rise on long hops, like a drone transit
     anim = { kind: "fly", from, to, dh, lift, t0: performance.now(), ms: ms || clamp(900 + travel * 1.4, 900, 3200) };
   }
   function orbit() { anim = { kind: "orbit", t0: performance.now(), base: getCam() }; }
-  function stopAnim() { if (anim) { anim = null; markView(null); } }
+  function takeOver() { anim = null; markView(null); }              // the person moved the camera: stop any flight, no preset is lit
   function stepAnim(now) {
     if (!anim) return;
     if (anim.kind === "orbit") {                                        // drone orbit: 9°/s around the centre
@@ -389,12 +395,13 @@ for (const [la, lo, t, anchor, dx, dy] of LABELS) {
   }
   const viewerEl = canvas.parentElement;
   viewerEl.addEventListener("wheel", e => {                              // capture phase: runs before OrbitControls' own dolly
-    e.preventDefault(); e.stopPropagation(); stopAnim();
+    if (e.target !== canvas) return;                                  // over the pad or the record card: leave the wheel alone
+    e.preventDefault(); e.stopPropagation(); takeOver();
     const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
     zoomAbout(focusPoint(e.clientX, e.clientY), Math.exp(dy * 0.0015));
   }, { capture: true, passive: false });
   canvas.addEventListener("dblclick", e => {
-    stopAnim(); const p = focusPoint(e.clientX, e.clientY), start = performance.now();
+    takeOver(); const p = focusPoint(e.clientX, e.clientY), start = performance.now();
     (function step(now) { const u = Math.min(1, (now - start) / 350);   // ease the halving over ~0.35 s
       zoomAbout(p, Math.pow(0.5, (ease(u) - (step.prev || 0)))); step.prev = ease(u); if (u < 1 && !anim) requestAnimationFrame(step); })(start);
   });
@@ -406,17 +413,20 @@ for (const [la, lo, t, anchor, dx, dy] of LABELS) {
     KeyQ: "turnL", ArrowLeft: "turnL", KeyE: "turnR", ArrowRight: "turnR", KeyR: "up", KeyF: "down" };
   canvas.addEventListener("keydown", e => {
     if (e.key === "Shift") { keys.add("fast"); return; }
+    // Leave browser shortcuts (Ctrl+F, Cmd+R…) alone. Clear held keys too: macOS sends no keyup for a letter released while Cmd is down.
+    if (e.ctrlKey || e.metaKey || e.altKey) { keys.clear(); return; }
     const k = KEYMAP[e.code]; if (!k) return;
-    e.preventDefault(); stopAnim(); keys.add(k);
+    e.preventDefault(); takeOver(); keys.add(k);
   });
   canvas.addEventListener("keyup", e => { if (e.key === "Shift") keys.delete("fast"); const k = KEYMAP[e.code]; if (k) keys.delete(k); });
   canvas.addEventListener("blur", () => keys.clear());
-  canvas.addEventListener("pointerdown", () => { canvas.focus({ preventScroll: true }); stopAnim(); });
+  canvas.addEventListener("pointerdown", () => { canvas.focus({ preventScroll: true }); if (anim) takeOver(); });
   document.querySelectorAll("[data-drone]").forEach(b => {
     const k = b.dataset.drone;
-    const on = e => { e.preventDefault(); stopAnim(); keys.add(k); b.setPointerCapture?.(e.pointerId); };
+    const on = e => { e.preventDefault(); takeOver(); keys.add(k); b.setPointerCapture?.(e.pointerId); };
     const off = () => keys.delete(k);
     b.addEventListener("pointerdown", on); b.addEventListener("pointerup", off); b.addEventListener("pointercancel", off); b.addEventListener("lostpointercapture", off);
+    b.addEventListener("contextmenu", e => e.preventDefault());          // a long press on a touch screen holds the key, no menu
   });
   const vel = new THREE.Vector3(); let yawRate = 0;                      // vel: (right, up, forward) m/s
   function stepDrone(dt) {
@@ -452,7 +462,10 @@ for (const [la, lo, t, anchor, dx, dy] of LABELS) {
   Object.keys(VIEWS).forEach(id => document.getElementById(id).addEventListener("click", () => { flyTo(viewCam(id)); markView(id); }));
   document.getElementById("cam-orbit").addEventListener("click", () => { orbit(); markView("cam-orbit"); });
   setView("cam-towers");
-  controls.addEventListener("start", stopAnim);
+  // A drag stops a flight; the lit preset goes out only if the drag actually moved the camera (a tap doesn't).
+  let dragFrom = null;
+  controls.addEventListener("start", () => { if (anim) takeOver(); dragFrom = camera.position.clone(); });
+  controls.addEventListener("end", () => { if (dragFrom && camera.position.distanceTo(dragFrom) > 0.5) markView(null); dragFrom = null; });
 
   const hud = document.getElementById("vhud");
   function showHud() {
