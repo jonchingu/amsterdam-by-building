@@ -1,0 +1,38 @@
+name: Deploy to Cloudflare
+
+# Publishes web/ plus the generated data (from the `data-latest` release, see scripts/publish-data.sh)
+# as an assets-only Cloudflare Worker. Needs repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "wrangler.jsonc", ".github/workflows/deploy-cloudflare.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch generated data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download data-latest --pattern web-data.tar.gz --dir "$RUNNER_TEMP"
+          tar -xzf "$RUNNER_TEMP/web-data.tar.gz" -C web
+          echo "data files: $(find web/data -type f | wc -l), $(du -sh web/data | cut -f1)"
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.151.0"
+          command: deploy

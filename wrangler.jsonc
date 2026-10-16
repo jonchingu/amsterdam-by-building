@@ -1,0 +1,12 @@
+// Cloudflare deploy: an assets-only Worker serving web/ (app + generated web/data/) from one origin.
+// No Worker script, so requests are static-asset requests: free and not counted against Worker request limits.
+// Deploy from a machine that has web/data/ built:  npx wrangler deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "amsterdam-by-building",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./web",
+    "not_found_handling": "404-page"
+  }
+}
