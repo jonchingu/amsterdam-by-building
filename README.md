@@ -43,6 +43,19 @@ python3 -m http.server 8642 --directory web
 
 Raw downloads (`data/`) and generated output (`web/data/`) are not in the repository: they are large and rebuilt by the pipeline.
 
+## Deploy
+
+The site is static, and runs on Cloudflare as an assets-only Worker (`wrangler.jsonc`): `web/` and `web/data/` from one
+origin, so there's no server code and no bandwidth bill. Files must stay under 25 MiB each and 20,000 in all (free plan).
+
+1. After a pipeline run, `scripts/publish-data.sh` checks the 25 MiB limit and attaches `web/data/` to the
+   `data-latest` release.
+2. The `Deploy to Cloudflare` workflow (on push to `main`, or run by hand) downloads that data and runs
+   `wrangler deploy`. It needs the repository secrets `CLOUDFLARE_API_TOKEN` (template "Edit Cloudflare Workers") and
+   `CLOUDFLARE_ACCOUNT_ID`.
+
+To deploy from your own machine instead: `npx wrangler login`, then `npx wrangler deploy`.
+
 ## Tokyo, one by one
 
 A second viewer, `web/tokyo/`, steps through Tokyo's buildings one at a time: each is framed on its own, in vermilion

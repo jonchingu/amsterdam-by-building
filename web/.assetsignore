@@ -1,0 +1,3 @@
+# Not uploaded to Cloudflare.
+# Per-tile files are an intermediate step of s03_tiles; the app reads the bundled data/pack*.bin.
+data/tiles/
