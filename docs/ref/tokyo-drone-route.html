@@ -312,21 +312,30 @@ footer { font-size: 0.82rem; color: var(--muted); display: grid; gap: 6px; borde
   const KEYMAP = { KeyW: "fwd", ArrowUp: "fwd", KeyS: "back", ArrowDown: "back", KeyA: "left", KeyD: "right",
     KeyQ: "turnL", ArrowLeft: "turnL", KeyE: "turnR", ArrowRight: "turnR", KeyR: "up", KeyF: "down",
     KeyT: "tiltU", KeyG: "tiltD", KeyZ: "zin", Equal: "zin", NumpadAdd: "zin", KeyX: "zout", Minus: "zout", NumpadSubtract: "zout" };
+  const PAD_KEYS = ["fwd", "back", "left", "right", "turnL", "turnR", "up", "down", "tiltU", "tiltD", "zin", "zout"];
   canvas.addEventListener("keydown", e => {
     if (e.key === "Shift") { keys.add("fast"); return; }
-    if (e.code === "Space") { e.preventDefault(); togglePlay(); return; }
-    if (e.code === "KeyN") { e.preventDefault(); addAnchor(); return; }
+    // Ctrl, Cmd and Alt combos belong to the browser (Ctrl+S, Cmd+N, Ctrl+F...). macOS also sends no keyup for
+    // a letter released while Cmd is down, so let go of every held flight key rather than leave one stuck.
+    if (e.ctrlKey || e.metaKey || e.altKey) { PAD_KEYS.forEach(k => keys.delete(k)); return; }
+    if (e.code === "Space") { e.preventDefault(); if (!e.repeat) togglePlay(); return; }
+    if (e.code === "KeyN") { e.preventDefault(); if (!e.repeat) addAnchor(); return; }
     if (e.code === "Escape") { setAim(null); return; }
     const k = KEYMAP[e.code]; if (!k) return;
     e.preventDefault(); takeOver(); keys.add(k);
   });
-  canvas.addEventListener("keyup", e => { if (e.key === "Shift") keys.delete("fast"); const k = KEYMAP[e.code]; if (k) keys.delete(k); });
+  canvas.addEventListener("keyup", e => {
+    if (e.key === "Shift") keys.delete("fast");
+    if (e.key === "Meta") PAD_KEYS.forEach(k => keys.delete(k));
+    const k = KEYMAP[e.code]; if (k) keys.delete(k);
+  });
   canvas.addEventListener("blur", () => keys.clear());
   document.querySelectorAll("[data-drone]").forEach(b => {
     const k = b.dataset.drone;
     const on = e => { e.preventDefault(); takeOver(); keys.add(k); b.setPointerCapture?.(e.pointerId); };
     const off = () => keys.delete(k);
     b.addEventListener("pointerdown", on); b.addEventListener("pointerup", off); b.addEventListener("pointercancel", off); b.addEventListener("lostpointercapture", off);
+    b.addEventListener("contextmenu", e => e.preventDefault());   // a long press is a held key, not a menu
   });
   const vel = new THREE.Vector3(); let yawRate = 0, bumped = 0;      // vel: (right, up, forward) m/s
   function stepDrone(dt) {
@@ -528,6 +537,7 @@ footer { font-size: 0.82rem; color: var(--muted); display: grid; gap: 6px; borde
 
   // ---- Playback ----
   const play = { on: false, t: 0, blend: null, live: -1 };
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");   // on: Play cuts onto the route instead of gliding there
   const playBtn = $("play"), scrub = $("scrub"), ttime = $("ttime");
   const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   function setPose(s) { pose.pos.copy(s.pos); pose.yaw = s.yaw; pose.pitch = s.pitch; pose.zoom = s.zoom; applyPose(); }
@@ -536,7 +546,7 @@ footer { font-size: 0.82rem; color: var(--muted); display: grid; gap: 6px; borde
     if (play.t >= R.total - 0.01) play.t = 0;
     setAim(null);
     const s = sample(play.t);
-    const far = s.pos.distanceTo(pose.pos) > 1 || Math.abs(((s.yaw - pose.yaw + 540) % 360) - 180) > 1;
+    const far = !reduceMotion.matches && (s.pos.distanceTo(pose.pos) > 1 || Math.abs(((s.yaw - pose.yaw + 540) % 360) - 180) > 1);
     play.blend = far ? { from: { pos: pose.pos.clone(), yaw: pose.yaw, pitch: pose.pitch, zoom: pose.zoom }, t0: performance.now(), ms: clamp(700 + s.pos.distanceTo(pose.pos) * 2, 700, 2500) } : null;
     play.on = true; keys.clear(); vel.set(0, 0, 0); yawRate = 0; syncTransport();
   }
