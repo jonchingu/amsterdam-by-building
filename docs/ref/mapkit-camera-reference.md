@@ -83,6 +83,32 @@ MapKit has no free-flight mode. The viewer adds one that still keeps the MapKit 
 - All moves still pass `constrain()`: center boundary, zoom range, distance-dependent pitch, and the eye stays at
   least 4 m above street level.
 
+### Route anchors: `tokyo-drone-route.html`
+
+A second page takes the drone further: first-person flight down between the towers, a lens zoom, and a planned route
+that flies itself. It is MapKit's keyframe idea with a drone's camera model in place of `MKMapCamera`.
+
+| MapKit keyframe animator | Drone route page |
+|---|---|
+| `KeyframeTrack` per camera property | One anchor holds every property: position, heading, tilt, zoom, hold, cruise speed, optional aim point |
+| `CubicKeyframe` (smooth through a value) | Heading, tilt and log-zoom follow Catmull–Rom curves across anchors; position follows a centripetal Catmull–Rom curve |
+| `LinearKeyframe` / `SpringKeyframe` timing | Each leg's progress along the curve is a cubic Hermite in time: zero speed at holds and the ends, the mean of the two legs' speeds at anchors flown through |
+| `MapCamera(centerCoordinate:distance:…)` | `MapCamera` looks *at* a centre; an anchor looks *from* a point. An aim point turns it back into a look-at, and two anchors aimed at the same point make a tracking shot |
+| The animation stops when the person interacts | Same: any key, drag, wheel or pinch pauses playback and leaves the drone where it is; Play blends back onto the route over 0.7 to 2.5 s |
+
+- **Zoom is the lens, not distance.** In flight, zoom changes the field of view (62° at 1× to about 5° at 12×), as on a
+  drone's camera. Getting closer means flying closer. Look-around speed scales with the field of view, so a long lens
+  stays steady.
+- **Walls.** As each tile loads, its triangles are drawn into a 2 m height grid (the tallest surface over each cell).
+  The drone, a 2.5 m disc, can't go below the grid's height plus 1.2 m. At a wall it slides along the face, using
+  a normal estimated from the blocked directions around it. The same grid flags route legs that pass through a
+  building (drawn red), feeds the "wall N m" readout and shades the map. Flying under overhangs isn't possible.
+- **Speed in the streets.** 0.45 × the height above the street per second, clamped to 8–90 m/s, so street-level flight
+  is slow enough to steer.
+- **The sample route** (95 s, 9 anchors) was planned on that grid. It comes in from Shimbashi, drops to 40 m and passes
+  the 40 m gap between Mori Tower and Business Tower (its closest wall is 15 m away), climbs the face of Station Tower,
+  then arcs round Mori Tower's crown while the lens closes from 1.6× to 3.2×.
+
 ## Sources
 
 - MKMapCamera: https://developer.apple.com/documentation/mapkit/mkmapcamera

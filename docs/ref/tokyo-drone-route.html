@@ -1,0 +1,845 @@
+<title>Toranomon Drone Route</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the viewer first, the transport bar under it, then the anchor list that drives the route. Same tokens as tokyo-lod3-survey.html. */
+:root {
+  --paper: #f3f4f1;
+  --sheet: #fbfbf9;
+  --ink: #1d2328;
+  --muted: #5d6871;
+  --rule: #d5d9d6;
+  --accent: #1f5f8b;
+  --route: #c2410c;
+  --warn: #b42318;
+  --sky: #dfe7ec;
+  --ground: #b4bbc0;
+  --font-display: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14181b; --sheet: #1a1f23; --ink: #e6e9e7; --muted: #9aa5ad; --rule: #2e363c;
+    --accent: #7cb7e0; --route: #fb923c; --warn: #f87171; --sky: #1c252c; --ground: #3a444b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #14181b; --sheet: #1a1f23; --ink: #e6e9e7; --muted: #9aa5ad; --rule: #2e363c;
+  --accent: #7cb7e0; --route: #fb923c; --warn: #f87171; --sky: #1c252c; --ground: #3a444b;
+  color-scheme: dark;
+}
+body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 40px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 32px; }
+h1, h2 { font-family: var(--font-display); font-weight: 700; text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.4rem); line-height: 1.2; }
+h2 { font-size: 1.3rem; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+header, section { display: grid; gap: 14px; min-width: 0; }
+.note { font-size: 0.88rem; color: var(--muted); }
+a { color: var(--accent); text-underline-offset: 2px; }
+code { font-family: var(--font-mono); font-size: 0.85em; }
+button, input { font: inherit; }
+:is(button, input, a, canvas):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.viewer { position: relative; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--sky); height: min(72vh, 640px); min-height: 380px; }
+.viewer canvas#scene { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.viewer canvas#scene:active { cursor: grabbing; }
+.viewer.aiming canvas#scene { cursor: crosshair; }
+.viewer canvas#scene:focus-visible { outline-offset: -2px; }
+.chip { position: absolute; font-family: var(--font-mono); font-size: 0.74rem; font-variant-numeric: tabular-nums; background: var(--sheet); color: var(--muted); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 8px; }
+.v-status { left: 12px; top: 12px; max-width: calc(100% - 230px); }
+.v-hud { left: 12px; bottom: 12px; max-width: calc(100% - 210px); color: var(--ink); }
+.v-hud .mode { color: var(--accent); font-weight: 500; }
+.v-hud .close { color: var(--warn); font-weight: 500; }
+.v-aim { left: 50%; top: 12px; transform: translateX(-50%); color: var(--accent); border-color: var(--accent); }
+.v-mini { position: absolute; right: 12px; bottom: 12px; width: 180px; height: 150px; border: 1px solid var(--rule); border-radius: 4px; background: var(--sheet); }
+.v-pad { position: absolute; right: 12px; top: 12px; display: grid; grid-template-columns: repeat(5, 34px); gap: 4px; }
+.v-pad button { width: 34px; height: 34px; border-radius: 6px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); font-size: 15px; line-height: 1; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; padding: 0; }
+.v-pad button:active { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 560px) {
+  .v-mini { width: 120px; height: 100px; }
+  .v-hud { max-width: calc(100% - 150px); }
+  .v-status { max-width: calc(100% - 200px); }
+  .v-pad { grid-template-columns: repeat(5, 30px); }
+  .v-pad button { width: 30px; height: 30px; font-size: 13px; }
+}
+
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.transport input[type=range] { flex: 1 1 220px; accent-color: var(--route); min-width: 0; }
+.time { font-family: var(--font-mono); font-size: 0.85rem; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.btn { font-size: 0.88rem; padding: 6px 14px; border-radius: 99px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.btn.primary { border-color: var(--route); color: var(--route); font-weight: 600; min-width: 8.5em; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.toggles { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.88rem; color: var(--muted); cursor: pointer; }
+.keys kbd { font-family: var(--font-mono); font-size: 0.78rem; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; margin: 0 1px; background: var(--sheet); color: var(--ink); }
+
+.anchors { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.anchor { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; display: grid; gap: 8px; }
+.anchor.sel { border-color: var(--accent); }
+.anchor.live { box-shadow: inset 3px 0 0 var(--route); }
+.a-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.a-num { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; color: var(--sheet); background: var(--route); border-radius: 99px; min-width: 22px; height: 22px; display: inline-grid; place-items: center; padding: 0 6px; }
+.a-name { flex: 1 1 160px; min-width: 0; border: 0; border-bottom: 1px dashed var(--rule); background: transparent; color: var(--ink); font-weight: 600; padding: 2px 0; }
+.a-meta { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.a-fields { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 0.86rem; color: var(--muted); }
+.a-fields label { display: inline-flex; align-items: center; gap: 6px; }
+.a-fields input { width: 4.6em; padding: 2px 6px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper); color: var(--ink); font-family: var(--font-mono); font-size: 0.84rem; }
+.a-leg { font-family: var(--font-mono); font-size: 0.78rem; }
+.a-leg.bad { color: var(--warn); font-weight: 500; }
+.a-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.a-actions button { font-size: 0.8rem; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--rule); background: transparent; color: var(--ink); cursor: pointer; }
+.a-actions button.on { border-color: var(--accent); color: var(--accent); }
+.route-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+details.paste { width: 100%; font-size: 0.88rem; }
+details.paste summary { cursor: pointer; color: var(--accent); }
+details.paste textarea { width: 100%; box-sizing: border-box; min-height: 120px; margin-top: 8px; font-family: var(--font-mono); font-size: 0.78rem; background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); border-radius: 4px; padding: 8px; }
+.msg { font-size: 0.86rem; color: var(--muted); min-height: 1.3em; }
+.how { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.how div { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; display: grid; gap: 4px; align-content: start; font-size: 0.9rem; }
+.how strong { font-weight: 600; }
+footer { font-size: 0.82rem; color: var(--muted); display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 16px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">都市の3Dデジタルマップ · 2025 LOD3 tiles · 虎ノ門</div>
+    <h1>Fly a drone between the Toranomon towers</h1>
+    <p class="lede">A drone camera over Tokyo's textured LOD3 tiles. Fly it by hand down into the streets, where it stops at walls, and zoom its lens in and out. Then plan a route: each anchor fixes where the drone is, where it looks and how far it zooms, and Play flies the whole route on its own.</p>
+  </header>
+
+  <section aria-label="Drone view">
+    <div class="viewer" id="viewer">
+      <canvas id="scene" tabindex="0" aria-label="Drone view of Toranomon and Shimbashi. Click, then fly with W A S D, R F and Q E; zoom with Z and X or the scroll wheel."></canvas>
+      <div class="chip v-status" id="vstatus">Loading tiles…</div>
+      <div class="chip v-aim" id="vaim" hidden>Click a building to aim anchor 1 at it · Esc to cancel</div>
+      <div class="chip v-hud" id="vhud" aria-live="off"></div>
+      <canvas class="v-mini" id="mini" aria-label="Map: the route, its anchors and the drone, north up"></canvas>
+      <div class="v-pad" role="group" aria-label="Drone controls">
+        <button type="button" data-drone="turnL" aria-label="Turn left">⟲</button>
+        <button type="button" data-drone="fwd" aria-label="Fly forward">▲</button>
+        <button type="button" data-drone="turnR" aria-label="Turn right">⟳</button>
+        <button type="button" data-drone="up" aria-label="Climb">⤒</button>
+        <button type="button" data-drone="zin" aria-label="Zoom in">＋</button>
+        <button type="button" data-drone="left" aria-label="Slide left">◀</button>
+        <button type="button" data-drone="back" aria-label="Fly back">▼</button>
+        <button type="button" data-drone="right" aria-label="Slide right">▶</button>
+        <button type="button" data-drone="down" aria-label="Descend">⤓</button>
+        <button type="button" data-drone="zout" aria-label="Zoom out">－</button>
+      </div>
+    </div>
+    <div class="transport">
+      <button type="button" class="btn primary" id="play">▶ Play route</button>
+      <button type="button" class="btn" id="restart">⏮ Start</button>
+      <input type="range" id="scrub" min="0" max="1" step="0.01" value="0" aria-label="Position along the route, in seconds">
+      <span class="time" id="ttime">0:00 / 0:00</span>
+    </div>
+    <div class="toggles">
+      <label class="toggle"><input type="checkbox" id="collide" checked> Stop at walls</label>
+      <label class="toggle"><input type="checkbox" id="showroute" checked> Show the route</label>
+    </div>
+    <p class="note keys">After clicking the view: <kbd>W</kbd><kbd>S</kbd> forward and back, <kbd>A</kbd><kbd>D</kbd> slide, <kbd>Q</kbd><kbd>E</kbd> turn, <kbd>R</kbd><kbd>F</kbd> climb and descend, <kbd>T</kbd><kbd>G</kbd> tilt the camera, <kbd>Z</kbd><kbd>X</kbd> or the scroll wheel zoom the lens, <kbd>Shift</kbd> to go faster. Drag to look around; pinch to zoom. <kbd>N</kbd> drops an anchor where you are, <kbd>Space</kbd> plays or pauses. Touching any control during playback hands the drone back to you.</p>
+  </section>
+
+  <section aria-labelledby="h-route">
+    <h2 id="h-route">Route anchors</h2>
+    <p class="note">The drone passes through every anchor in order on a smooth curve. At each one it holds the anchor's framing and zoom; between two anchors it eases from one shot to the next. A hold above zero stops the drone there; zero flies straight through. Aim an anchor at a building and the camera keeps that building in frame, and two anchors aimed at the same spot make a tracking shot. Your route is saved in this browser.</p>
+    <ol class="anchors" id="anchors"></ol>
+    <div class="route-actions">
+      <button type="button" class="btn primary" id="add">＋ Anchor at this view</button>
+      <button type="button" class="btn" id="reset">Sample route</button>
+      <button type="button" class="btn" id="clear">Clear</button>
+      <button type="button" class="btn" id="copy">Copy route</button>
+      <details class="paste"><summary>Paste a route</summary><textarea id="pastebox" spellcheck="false" aria-label="Route as JSON"></textarea><button type="button" class="btn" id="load">Load this route</button></details>
+    </div>
+    <p class="msg" id="msg" aria-live="polite"></p>
+  </section>
+
+  <section aria-labelledby="h-how">
+    <h2 id="h-how">How the camera is driven</h2>
+    <div class="how">
+      <div><strong>Path</strong><span>A centripetal Catmull–Rom curve through the anchor positions, so corners round off without overshooting into walls. Legs that would pass through a building are flagged in red.</span></div>
+      <div><strong>Speed</strong><span>Each leg has a cruise speed. The drone eases out of a stop and into the next, and keeps its speed through anchors with no hold, so there is no lurch at each anchor.</span></div>
+      <div><strong>Framing and zoom</strong><span>Heading, tilt and zoom follow their own smooth curves from anchor to anchor. Zoom changes the lens (field of view), not the drone's position, and blends evenly on a log scale.</span></div>
+      <div><strong>Taking over</strong><span>As with MapKit's keyframe animator, any input during playback stops the animation and leaves you flying from that exact spot. Play again blends back onto the route.</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Buildings: Tokyo Metropolitan Government, 都市の3Dデジタルマップ 2025 (CC BY 4.0), the same 11 textured LOD3 tiles as the Toranomon survey page.</span>
+    <span>Walls come from a 2 m height grid built from the tiles as they load. It treats buildings as solid from the roof down, so the drone can't fly under overhangs.</span>
+  </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/DRACOLoader.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const status = $("vstatus"), hud = $("vhud"), viewer = $("viewer");
+  if (!window.THREE || !THREE.GLTFLoader) { status.textContent = "The 3D library didn't load, so the view is unavailable."; return; }
+  const TILES = ["data17", "data18", "data44", "data16", "data13", "data39", "data40", "data41", "data30", "data29", "data28"];
+  const RAD = Math.PI / 180, clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  let uiReady = false;                                   // set once the route UI exists; theme changes before that only recolour the scene
+  const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+  // ---- Scene ----
+  const canvas = $("scene");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  const scene = new THREE.Scene();
+  let dirty = true; const redraw = () => { dirty = true; };
+  const FOV0 = 62, ZMIN = 1, ZMAX = 12;                 // lens: 62° vertical at 1×, about 5° at 12×
+  const camera = new THREE.PerspectiveCamera(FOV0, 1, 0.5, 7000);
+  camera.rotation.order = "YXZ";
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f94, 0.85));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.55); sun.position.set(-400, 700, 300); scene.add(sun);
+  const groundMat = new THREE.MeshLambertMaterial({ color: 0xc9cdd0 });
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(2600, 64), groundMat);
+  ground.rotation.x = -Math.PI / 2; scene.add(ground);
+  const colors = {};
+  function themeColors() {
+    const cs = getComputedStyle(document.documentElement), v = (n, d) => cs.getPropertyValue(n).trim() || d;
+    Object.assign(colors, { sky: v("--sky", "#dfe7ec"), ground: v("--ground", "#b4bbc0"), route: v("--route", "#c2410c"), warn: v("--warn", "#b42318"),
+      accent: v("--accent", "#1f5f8b"), sheet: v("--sheet", "#fbfbf9"), ink: v("--ink", "#1d2328"), muted: v("--muted", "#5d6871"), rule: v("--rule", "#d5d9d6") });
+    scene.background = new THREE.Color(colors.sky);
+    scene.fog = new THREE.Fog(colors.sky, 1800, 5200);
+    groundMat.color.set(colors.ground);
+    if (uiReady) { miniBase = null; buildOverlay(); }
+    redraw();
+  }
+  themeColors();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", themeColors);
+  new MutationObserver(themeColors).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  // Local frame: origin 35.6660 N, 139.7505 E; x east, y up, z south (metres). Street level (groundY) comes from the first tile.
+  const KX = 111320 * Math.cos(35.666 * RAD), KZ = 110950;
+  let groundY = 0;
+
+  // ---- Height grid: the tallest surface over each 2 m cell, so the drone can tell where the walls are ----
+  const HF = { x0: -1300, z0: -1100, cell: 2, nx: 1300, nz: 1100 };
+  HF.h = new Float32Array(HF.nx * HF.nz).fill(-1e9);
+  function rasterMesh(o) {
+    const g = o.geometry, pos = g.getAttribute("position"), idx = g.index, n = pos.count, c = HF.cell;
+    const W = new Float32Array(n * 3), v = new THREE.Vector3();
+    for (let k = 0; k < n; k++) { v.fromBufferAttribute(pos, k).applyMatrix4(o.matrixWorld); W[3 * k] = (v.x - HF.x0) / c; W[3 * k + 1] = v.y; W[3 * k + 2] = (v.z - HF.z0) / c; }
+    const tris = idx ? idx.count / 3 : n / 3, R = 0.71, nx = HF.nx, nz = HF.nz, H = HF.h;
+    for (let t = 0; t < tris; t++) {
+      const ia = idx ? idx.getX(3 * t) : 3 * t, ib = idx ? idx.getX(3 * t + 1) : 3 * t + 1, ic = idx ? idx.getX(3 * t + 2) : 3 * t + 2;
+      const ax = W[3 * ia], az = W[3 * ia + 2], bx = W[3 * ib], bz = W[3 * ib + 2], cx = W[3 * ic], cz = W[3 * ic + 2];
+      const top = Math.max(W[3 * ia + 1], W[3 * ib + 1], W[3 * ic + 1]);
+      const i0 = Math.max(0, Math.floor(Math.min(ax, bx, cx) - R)), i1 = Math.min(nx - 1, Math.floor(Math.max(ax, bx, cx) + R));
+      const j0 = Math.max(0, Math.floor(Math.min(az, bz, cz) - R)), j1 = Math.min(nz - 1, Math.floor(Math.max(az, bz, cz) + R));
+      if (i0 > i1 || j0 > j1) continue;
+      const area = (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+      if (Math.abs(area) > 0.05) {
+        // Inside, or within half a cell diagonal of, the triangle seen from above.
+        const s = area > 0 ? 1 : -1;
+        const e = [[ax, az, bx, bz], [bx, bz, cx, cz], [cx, cz, ax, az]].map(([px, pz, qx, qz]) => { const L = Math.hypot(qx - px, qz - pz) || 1; return [px, pz, (qx - px) * s / L, (qz - pz) * s / L]; });
+        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+          const x = i + 0.5, z = j + 0.5; let ok = true;
+          for (let k = 0; k < 3 && ok; k++) { const E = e[k]; if (E[2] * (z - E[1]) - E[3] * (x - E[0]) < -R) ok = false; }
+          if (ok && H[j * nx + i] < top) H[j * nx + i] = top;
+        }
+      } else {
+        // A wall seen from above is a line: mark the cells it passes near.
+        for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+          const x = i + 0.5, z = j + 0.5;
+          if (Math.min(segDist(x, z, ax, az, bx, bz), segDist(x, z, bx, bz, cx, cz), segDist(x, z, cx, cz, ax, az)) <= R && H[j * nx + i] < top) H[j * nx + i] = top;
+        }
+      }
+    }
+  }
+  function segDist(x, z, ax, az, bx, bz) {
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    const t = L2 ? clamp(((x - ax) * dx + (z - az) * dz) / L2, 0, 1) : 0;
+    return Math.hypot(x - ax - t * dx, z - az - t * dz);
+  }
+  // Highest surface within r metres of (x, z).
+  function hDisc(x, z, r) {
+    const c = HF.cell, ci = (x - HF.x0) / c, cj = (z - HF.z0) / c, rc = r / c;
+    let m = -1e9;
+    for (let j = Math.floor(cj - rc); j <= Math.floor(cj + rc); j++) for (let i = Math.floor(ci - rc); i <= Math.floor(ci + rc); i++) {
+      if (i < 0 || j < 0 || i >= HF.nx || j >= HF.nz) continue;
+      const dx = i + 0.5 - ci, dz = j + 0.5 - cj;
+      if (dx * dx + dz * dz <= (rc + 0.71) * (rc + 0.71)) m = Math.max(m, HF.h[j * HF.nx + i]);
+    }
+    return m;
+  }
+  const BODY = 2.5;                                      // drone radius, metres
+  let collide = true;
+  const LIM = { x: 1200, z: 1000, top: 1100 };
+  function blocked(x, y, z) {
+    if (y < groundY + 1.5) return true;
+    return collide && y - 1.2 < hDisc(x, z, BODY);
+  }
+  // Distance to the nearest wall at the drone's height, up to 60 m.
+  function clearance(p) {
+    const c = HF.cell, ci = Math.floor((p.x - HF.x0) / c), cj = Math.floor((p.z - HF.z0) / c), R = 30;
+    let best = Infinity;
+    for (let j = cj - R; j <= cj + R; j++) for (let i = ci - R; i <= ci + R; i++) {
+      if (i < 0 || j < 0 || i >= HF.nx || j >= HF.nz || HF.h[j * HF.nx + i] < p.y - 1.2) continue;
+      const d = Math.hypot((i + 0.5) * c + HF.x0 - p.x, (j + 0.5) * c + HF.z0 - p.z);
+      if (d < best) best = d;
+    }
+    return best <= 60 ? best : Infinity;
+  }
+
+  // ---- The drone: position, heading (° from north, clockwise), tilt (° above the horizon) and lens zoom ----
+  const pose = { pos: new THREE.Vector3(-60, 160, 380), yaw: 340, pitch: -14, zoom: 1 };
+  function lensFov(z) { return 2 * Math.atan(Math.tan(FOV0 / 2 * RAD) / z) / RAD; }
+  function applyPose() {
+    camera.position.copy(pose.pos);
+    camera.rotation.set(pose.pitch * RAD, -pose.yaw * RAD, 0);
+    const f = lensFov(pose.zoom);
+    if (Math.abs(camera.fov - f) > 1e-4) { camera.fov = f; camera.updateProjectionMatrix(); badgeScale(); }
+    redraw();
+  }
+  function lookAngles(from, to) {
+    const d = to.clone().sub(from);
+    return { yaw: (Math.atan2(d.x, -d.z) / RAD + 360) % 360, pitch: Math.atan2(d.y, Math.hypot(d.x, d.z)) / RAD };
+  }
+
+  // ---- Free flight: keys and the pad set a wanted velocity; the drone eases toward it ----
+  const keys = new Set();
+  const KEYMAP = { KeyW: "fwd", ArrowUp: "fwd", KeyS: "back", ArrowDown: "back", KeyA: "left", KeyD: "right",
+    KeyQ: "turnL", ArrowLeft: "turnL", KeyE: "turnR", ArrowRight: "turnR", KeyR: "up", KeyF: "down",
+    KeyT: "tiltU", KeyG: "tiltD", KeyZ: "zin", Equal: "zin", NumpadAdd: "zin", KeyX: "zout", Minus: "zout", NumpadSubtract: "zout" };
+  canvas.addEventListener("keydown", e => {
+    if (e.key === "Shift") { keys.add("fast"); return; }
+    if (e.code === "Space") { e.preventDefault(); togglePlay(); return; }
+    if (e.code === "KeyN") { e.preventDefault(); addAnchor(); return; }
+    if (e.code === "Escape") { setAim(null); return; }
+    const k = KEYMAP[e.code]; if (!k) return;
+    e.preventDefault(); takeOver(); keys.add(k);
+  });
+  canvas.addEventListener("keyup", e => { if (e.key === "Shift") keys.delete("fast"); const k = KEYMAP[e.code]; if (k) keys.delete(k); });
+  canvas.addEventListener("blur", () => keys.clear());
+  document.querySelectorAll("[data-drone]").forEach(b => {
+    const k = b.dataset.drone;
+    const on = e => { e.preventDefault(); takeOver(); keys.add(k); b.setPointerCapture?.(e.pointerId); };
+    const off = () => keys.delete(k);
+    b.addEventListener("pointerdown", on); b.addEventListener("pointerup", off); b.addEventListener("pointercancel", off); b.addEventListener("lostpointercapture", off);
+  });
+  const vel = new THREE.Vector3(); let yawRate = 0, bumped = 0;      // vel: (right, up, forward) m/s
+  function stepDrone(dt) {
+    if (play.on) return;
+    const K = k => keys.has(k) ? 1 : 0;
+    const want = new THREE.Vector3(K("right") - K("left"), K("up") - K("down"), K("fwd") - K("back"));
+    const alt = pose.pos.y - groundY;
+    const speed = clamp(alt * 0.45, 8, 90) * (K("fast") ? 3 : 1);   // slow in the streets, faster up high
+    const a = 1 - Math.exp(-dt * 4);
+    vel.lerp(want.multiplyScalar(speed), a);
+    yawRate += ((K("turnR") - K("turnL")) * 55 / Math.sqrt(pose.zoom) - yawRate) * a;
+    let changed = false;
+    const tilt = K("tiltU") - K("tiltD"), zoomDir = K("zin") - K("zout");
+    if (tilt) { pose.pitch = clamp(pose.pitch + tilt * 40 * dt, -89, 60); changed = true; }
+    if (zoomDir) { pose.zoom = clamp(pose.zoom * Math.exp(zoomDir * 1.3 * dt), ZMIN, ZMAX); changed = true; }
+    if (Math.abs(yawRate) > 0.05) { pose.yaw = (pose.yaw + yawRate * dt + 360) % 360; changed = true; } else yawRate = 0;
+    if (vel.lengthSq() > 0.0004) {
+      const h = pose.yaw * RAD;
+      const m = new THREE.Vector3(Math.sin(h), 0, -Math.cos(h)).multiplyScalar(vel.z * dt)
+        .add(new THREE.Vector3(Math.cos(h), 0, Math.sin(h)).multiplyScalar(vel.x * dt));
+      m.y = vel.y * dt;
+      const r = tryMove(m);                             // true: clear; "slid": along a wall; false: stuck
+      if (r !== true) bumped = performance.now();
+      if (r === false) vel.multiplyScalar(0.3);
+      changed = true;
+    } else vel.set(0, 0, 0);
+    if (changed) applyPose();
+  }
+  // Move if the way is clear; at a wall, slide along it; at a roof or the street, keep the horizontal part.
+  function tryMove(m) {
+    const p = pose.pos;
+    const fits = d => !blocked(p.x + d.x, p.y + d.y, p.z + d.z);
+    const go = d => { p.add(d); p.x = clamp(p.x, -LIM.x, LIM.x); p.z = clamp(p.z, -LIM.z, LIM.z); p.y = clamp(p.y, groundY + 1.5, groundY + LIM.top); };
+    if (!collide || blocked(p.x, p.y, p.z)) { go(m); return true; }    // already inside something: let it fly out
+    if (fits(m)) { go(m); return true; }
+    const n = wallNormal(p.x + m.x, p.y + m.y, p.z + m.z);
+    const flat = new THREE.Vector3(m.x, 0, m.z);
+    if (n) { const into = flat.dot(n); if (into < 0) flat.addScaledVector(n, -into); }
+    for (const d of [new THREE.Vector3(flat.x, m.y, flat.z), new THREE.Vector3(flat.x, 0, flat.z), new THREE.Vector3(0, m.y, 0)]) {
+      if (d.lengthSq() > 1e-8 && fits(d)) { go(d); return "slid"; }
+    }
+    return false;
+  }
+  // Points away from the blocked directions around (x, z): the wall's outward normal, roughly.
+  function wallNormal(x, y, z) {
+    const n = new THREE.Vector3();
+    for (let k = 0; k < 16; k++) {
+      const a = k / 16 * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a);
+      if (y - 1.2 < hDisc(x + dx * (BODY + 1.5), z + dz * (BODY + 1.5), 1)) n.x -= dx, n.z -= dz;
+    }
+    return n.lengthSq() > 1e-6 ? n.normalize() : null;
+  }
+
+  // ---- Look by dragging, zoom with the wheel or a pinch ----
+  const ptrs = new Map(); let pinch = null, downAt = null;
+  canvas.addEventListener("pointerdown", e => {
+    canvas.focus({ preventScroll: true });
+    canvas.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 1) downAt = [e.clientX, e.clientY];
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z: pose.zoom }; }
+  });
+  canvas.addEventListener("pointermove", e => {
+    if (!ptrs.has(e.pointerId)) return;
+    const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pinch && ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()]; takeOver();
+      pose.zoom = clamp(pinch.z * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d, ZMIN, ZMAX); applyPose(); return;
+    }
+    if (ptrs.size !== 1 || (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 4)) return;
+    takeOver();
+    const k = 0.18 * camera.fov / FOV0;                 // a zoomed-in lens turns slower, as a real gimbal does
+    pose.yaw = (pose.yaw - (e.clientX - prev[0]) * k + 360) % 360;
+    pose.pitch = clamp(pose.pitch + (e.clientY - prev[1]) * k, -89, 60);
+    applyPose();
+  });
+  const endPtr = e => {
+    if (!ptrs.has(e.pointerId)) return;
+    const wasClick = ptrs.size === 1 && downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 4;
+    ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null;
+    if (wasClick && e.type === "pointerup" && aimIdx != null) pickAim(e.clientX, e.clientY);
+  };
+  canvas.addEventListener("pointerup", endPtr); canvas.addEventListener("pointercancel", endPtr);
+  viewer.addEventListener("wheel", e => {
+    if (!viewer.contains(e.target) || e.target.closest(".v-pad")) return;
+    e.preventDefault(); takeOver();
+    const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+    pose.zoom = clamp(pose.zoom * Math.exp(-dy * 0.0015), ZMIN, ZMAX); applyPose();
+  }, { passive: false });
+
+  // ---- Aiming an anchor at a building ----
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), pickables = [];
+  let aimIdx = null;
+  function setAim(i) {
+    aimIdx = i; viewer.classList.toggle("aiming", i != null);
+    $("vaim").hidden = i == null;
+    if (i != null) $("vaim").textContent = `Click a building to aim anchor ${i + 1} at it · Esc to cancel`;
+    renderList();
+  }
+  function pickAim(x, y) {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(pickables, false)[0];
+    if (!hit) { say("Nothing there to aim at. Click a building, or press Esc."); return; }
+    const a = route[aimIdx];
+    a.target = [round1(hit.point.x), round1(hit.point.y - groundY), round1(hit.point.z)];
+    say(`Anchor ${aimIdx + 1} now keeps that point in frame.`);
+    setAim(null); routeChanged();
+  }
+
+  // ---- The route: anchors in local metres, heights above the street ----
+  // {name, p: [x, y, z], yaw, pitch, zoom, hold (s), speed (m/s to the next anchor), target?: [x, y, z]}
+  // Sample route, planned on the height grid: in from Shimbashi, down through the 40 m gap between Mori Tower and
+  // Business Tower, up the face of Station Tower, then an arc that keeps Mori Tower's crown in frame while the lens closes in.
+  const MORI_CROWN = [-95, 250, -90], STATION_FACE = [-320, 150, -185], STATION_TOP = [-320, 245, -185];
+  const SAMPLE = [
+    { name: "Over Shimbashi", p: [300, 140, 260], yaw: 313, pitch: -12, zoom: 1.4, hold: 1.5, speed: 28 },
+    { name: "Down to the rooftops", p: [120, 62, 80], yaw: 316, pitch: -6, zoom: 1, hold: 0, speed: 16 },
+    { name: "Under Mori Tower's east face", p: [-15, 42, -105], yaw: 300, pitch: 8, zoom: 1, hold: 0, speed: 12 },
+    { name: "Through the gap", p: [-75, 40, -142], yaw: 280, pitch: 4, zoom: 1, hold: 0, speed: 12 },
+    { name: "The plaza, facing Station Tower", p: [-185, 55, -148], yaw: 255, pitch: 10, zoom: 1.2, hold: 1.5, speed: 16, target: STATION_FACE },
+    { name: "Up Station Tower", p: [-245, 190, -130], yaw: 240, pitch: 5, zoom: 1, hold: 0, speed: 18, target: STATION_TOP },
+    { name: "Above the towers", p: [-150, 310, -260], yaw: 160, pitch: -20, zoom: 1.6, hold: 0, speed: 22, target: MORI_CROWN },
+    { name: "Arc round Mori Tower", p: [130, 320, -200], yaw: 245, pitch: -15, zoom: 2.2, hold: 0, speed: 22, target: MORI_CROWN },
+    { name: "Pull back, crown in close-up", p: [180, 330, 120], yaw: 305, pitch: -12, zoom: 3.2, hold: 3, speed: 20, target: MORI_CROWN }
+  ];
+  let route = [];
+  const round1 = v => Math.round(v * 10) / 10;
+  const STORE = "toranomon-drone-route-v1";
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(route)); } catch (e) {} }
+  function validRoute(r) {
+    return Array.isArray(r) && r.every(a => a && Array.isArray(a.p) && a.p.length === 3 && a.p.every(Number.isFinite) && Number.isFinite(a.yaw) && Number.isFinite(a.pitch))
+      ? r.map((a, i) => ({ name: String(a.name || `Anchor ${i + 1}`).slice(0, 60), p: a.p.map(Number), yaw: +a.yaw, pitch: clamp(+a.pitch, -89, 60),
+          zoom: clamp(+a.zoom || 1, ZMIN, ZMAX), hold: clamp(+a.hold || 0, 0, 60), speed: clamp(+a.speed || 20, 2, 150),
+          ...(Array.isArray(a.target) && a.target.length === 3 && a.target.every(Number.isFinite) ? { target: a.target.map(Number) } : {}) }))
+      : null;
+  }
+  function loadRoute() {
+    try { const r = validRoute(JSON.parse(localStorage.getItem(STORE) || "null")); if (r && r.length) return r; } catch (e) {}
+    return validRoute(SAMPLE);
+  }
+
+  // Built form of the route: curve, per-leg timing and arc-length tables, per-anchor framing.
+  let R = null;
+  function anchorPos(a) { return new THREE.Vector3(a.p[0], groundY + a.p[1], a.p[2]); }
+  function buildRoute() {
+    const A = route, n = A.length;
+    if (n < 2) { R = null; return; }
+    const pts = A.map(anchorPos);
+    const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
+    const yaw = [], pitch = [], lz = [];
+    A.forEach((a, i) => {
+      let y = a.yaw, p = a.pitch;
+      if (a.target) { const l = lookAngles(pts[i], anchorPos({ p: a.target })); y = l.yaw; p = l.pitch; }
+      if (i) { while (y - yaw[i - 1] > 180) y -= 360; while (y - yaw[i - 1] < -180) y += 360; }
+      yaw.push(y); pitch.push(p); lz.push(Math.log(a.zoom));
+    });
+    // Speed through each anchor: zero at the ends and at holds, otherwise the mean of the two legs' cruise speeds.
+    const v = A.map((a, i) => (i === 0 || i === n - 1 || a.hold > 0) ? 0 : Math.min((A[i - 1].speed + a.speed) / 2, 2.9 * Math.min(A[i - 1].speed, a.speed)));
+    const legs = [];
+    for (let i = 0; i < n - 1; i++) {
+      const N = 160, tbl = new Float32Array(N + 1); let prev = curve.getPoint(i / (n - 1)), L = 0;
+      for (let k = 1; k <= N; k++) { const q = curve.getPoint((i + k / N) / (n - 1)); L += q.distanceTo(prev); tbl[k] = L; prev = q; }
+      const T = Math.max(0.6, L / A[i].speed);
+      const al = Math.min(2.9, v[i] * T / Math.max(L, 1e-3)), be = Math.min(2.9, v[i + 1] * T / Math.max(L, 1e-3));
+      // Does this leg pass through a building? Check every metre and a half.
+      let clip = false;
+      const steps = Math.max(2, Math.ceil(L / 1.5));
+      for (let k = 1; k < steps && !clip; k++) { const q = curve.getPoint((i + k / steps) / (n - 1)); if (q.y - 1.2 < hDisc(q.x, q.z, 1.5) || q.y < groundY + 1) clip = true; }
+      legs.push({ L, T, tbl, al, be, clip });
+    }
+    const arrive = [], depart = []; let t = 0;
+    for (let i = 0; i < n; i++) { arrive.push(t); t += A[i].hold; depart.push(t); if (i < n - 1) t += legs[i].T; }
+    R = { curve, pts, yaw, pitch, lz, legs, arrive, depart, total: t, n };
+  }
+  const cr = (p0, p1, p2, p3, f) => 0.5 * (2 * p1 + (-p0 + p2) * f + (2 * p0 - 5 * p1 + 4 * p2 - p3) * f * f + (-p0 + 3 * p1 - 3 * p2 + p3) * f * f * f);
+  // Pose at route time t (seconds).
+  function sample(t) {
+    const { n, legs, depart, arrive, pts, yaw, pitch, lz, curve } = R;
+    t = clamp(t, 0, R.total);
+    let i = 0; while (i < n - 1 && t > depart[i] && t >= arrive[i + 1]) i++;
+    if (i === n - 1 || t <= depart[i]) return { pos: pts[i].clone(), yaw: yaw[i], pitch: pitch[i], zoom: Math.exp(lz[i]), at: i };
+    const g = legs[i], u = (t - depart[i]) / g.T;
+    const H = (u * u * u - 2 * u * u + u) * g.al + (-2 * u * u * u + 3 * u * u) + (u * u * u - u * u) * g.be;   // cubic Hermite: 0→1, slopes al, be
+    const s = clamp(H, 0, 1) * g.L;
+    let lo = 0, hi = g.tbl.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (g.tbl[m] < s) lo = m; else hi = m; }
+    const w = (lo + (g.tbl[hi] > g.tbl[lo] ? (s - g.tbl[lo]) / (g.tbl[hi] - g.tbl[lo]) : 0)) / (g.tbl.length - 1);
+    const pos = curve.getPoint((i + w) / (n - 1));
+    const f = g.L > 0 ? s / g.L : u, I = k => clamp(k, 0, n - 1);
+    let y = cr(yaw[I(i - 1)], yaw[i], yaw[i + 1], yaw[I(i + 2)], f), p = cr(pitch[I(i - 1)], pitch[i], pitch[i + 1], pitch[I(i + 2)], f);
+    const ta = route[i].target, tb = route[i + 1].target;
+    if (ta && tb && Math.hypot(ta[0] - tb[0], ta[1] - tb[1], ta[2] - tb[2]) < 1) {   // tracking shot: keep the shared target dead centre
+      const l = lookAngles(pos, anchorPos({ p: ta })); y = l.yaw; p = l.pitch;
+    }
+    return { pos, yaw: (y % 360 + 360) % 360, pitch: clamp(p, -89, 60), zoom: clamp(Math.exp(cr(lz[I(i - 1)], lz[i], lz[i + 1], lz[I(i + 2)], f)), ZMIN, ZMAX), at: f < 0.5 ? i : i + 1 };
+  }
+
+  // ---- Playback ----
+  const play = { on: false, t: 0, blend: null, live: -1 };
+  const playBtn = $("play"), scrub = $("scrub"), ttime = $("ttime");
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  function setPose(s) { pose.pos.copy(s.pos); pose.yaw = s.yaw; pose.pitch = s.pitch; pose.zoom = s.zoom; applyPose(); }
+  function startPlay() {
+    if (!R) { say("Add at least two anchors to fly a route."); return; }
+    if (play.t >= R.total - 0.01) play.t = 0;
+    setAim(null);
+    const s = sample(play.t);
+    const far = s.pos.distanceTo(pose.pos) > 1 || Math.abs(((s.yaw - pose.yaw + 540) % 360) - 180) > 1;
+    play.blend = far ? { from: { pos: pose.pos.clone(), yaw: pose.yaw, pitch: pose.pitch, zoom: pose.zoom }, t0: performance.now(), ms: clamp(700 + s.pos.distanceTo(pose.pos) * 2, 700, 2500) } : null;
+    play.on = true; keys.clear(); vel.set(0, 0, 0); yawRate = 0; syncTransport();
+  }
+  function pausePlay() { if (!play.on) return; play.on = false; play.blend = null; syncTransport(); }
+  function togglePlay() { play.on ? pausePlay() : startPlay(); }
+  function takeOver() { if (play.on) { pausePlay(); say("Paused: you have the drone. Play picks the route up again."); } }
+  function stepPlay(dt, now) {
+    if (!play.on || !R) return;
+    let s;
+    if (play.blend) {                                   // ease from wherever the drone is onto the route
+      const b = play.blend, k = ease(Math.min(1, (now - b.t0) / b.ms)), r = sample(play.t);
+      s = { pos: b.from.pos.clone().lerp(r.pos, k), yaw: b.from.yaw + (((r.yaw - b.from.yaw + 540) % 360) - 180) * k,
+        pitch: b.from.pitch + (r.pitch - b.from.pitch) * k, zoom: Math.exp(Math.log(b.from.zoom) + (Math.log(r.zoom) - Math.log(b.from.zoom)) * k), at: r.at };
+      if (k >= 1) play.blend = null;
+    } else {
+      play.t = Math.min(R.total, play.t + dt); s = sample(play.t);
+      if (play.t >= R.total) { play.on = false; say("End of the route."); }
+    }
+    setPose(s); markLive(s.at); syncTransport();
+  }
+  function syncTransport() {
+    playBtn.textContent = play.on ? "❚❚ Pause" : (R && play.t > 0.01 && play.t < R.total - 0.01 ? "▶ Resume" : "▶ Play route");
+    playBtn.disabled = !R; scrub.disabled = !R; $("restart").disabled = !R;
+    const total = R ? R.total : 0;
+    scrub.max = Math.max(0.01, total).toFixed(2); scrub.value = Math.min(play.t, total).toFixed(2);
+    ttime.textContent = `${fmt(play.t)} / ${fmt(total)}`;
+    routeGroup.visible = showRoute && !play.on;
+  }
+  playBtn.addEventListener("click", togglePlay);
+  $("restart").addEventListener("click", () => { if (!R) return; play.on = false; play.blend = null; play.t = 0; setPose(sample(0)); markLive(0); syncTransport(); });
+  scrub.addEventListener("input", () => { if (!R) return; play.on = false; play.blend = null; play.t = +scrub.value; const s = sample(play.t); setPose(s); markLive(s.at); syncTransport(); });
+
+  // ---- Route drawn in the scene and on the map ----
+  const routeGroup = new THREE.Group(); scene.add(routeGroup);
+  let showRoute = true;
+  $("showroute").addEventListener("change", e => { showRoute = e.target.checked; syncTransport(); redraw(); });
+  $("collide").addEventListener("change", e => { collide = e.target.checked; });
+  const spriteCache = {}, sprites = [];
+  // Unattenuated sprites grow as the field of view narrows; scale them back so a badge stays the same size at any zoom.
+  function badgeScale() { const k = 0.045 * Math.tan(camera.fov / 2 * RAD) / Math.tan(FOV0 / 2 * RAD); sprites.forEach(s => s.scale.set(k, k, 1)); }
+  function numberSprite(k, col) {
+    const key = k + col; if (!spriteCache[key]) {
+      const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d");
+      g.fillStyle = col; g.beginPath(); g.arc(32, 32, 28, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#fff"; g.font = "600 30px IBM Plex Mono, monospace"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(String(k), 32, 34);
+      const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; spriteCache[key] = tex;
+    }
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: spriteCache[key], depthTest: false, sizeAttenuation: false }));
+    s.renderOrder = 3; sprites.push(s); return s;
+  }
+  let routeLine2D = [];
+  function buildOverlay() {
+    routeGroup.children.slice().forEach(o => { routeGroup.remove(o); o.geometry?.dispose(); o.material?.dispose(); });
+    routeLine2D = []; sprites.length = 0;
+    if (!R) { redraw(); return; }
+    const okCol = new THREE.Color(colors.route), badCol = new THREE.Color(colors.warn);
+    const verts = [], cols = [];
+    R.legs.forEach((g, i) => {
+      const steps = Math.max(8, Math.ceil(g.L / 4));
+      for (let k = 0; k <= steps; k++) {
+        const q = R.curve.getPoint((i + k / steps) / (R.n - 1)); verts.push(q.x, q.y, q.z);
+        const c = g.clip ? badCol : okCol; cols.push(c.r, c.g, c.b);
+        if (k < steps || i === R.legs.length - 1) routeLine2D.push([q.x, q.z, g.clip]);
+      }
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3)); geo.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    routeGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true })));
+    const ghost = new THREE.Line(geo.clone(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.3, depthTest: false }));
+    ghost.renderOrder = 2; routeGroup.add(ghost);
+    route.forEach((a, i) => {                            // each anchor: its number, and a short line showing where it looks
+      const p = R.pts[i], s = numberSprite(i + 1, colors.route); s.position.copy(p); routeGroup.add(s);
+      const y = R.yaw[i] * RAD, pt = R.pitch[i] * RAD, len = 24 / Math.sqrt(a.zoom);
+      const dir = new THREE.Vector3(Math.sin(y) * Math.cos(pt), Math.sin(pt), -Math.cos(y) * Math.cos(pt));
+      const lg = new THREE.BufferGeometry().setFromPoints([p, p.clone().addScaledVector(dir, len)]);
+      const l = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: colors.accent, depthTest: false, transparent: true, opacity: 0.85 })); l.renderOrder = 2; routeGroup.add(l);
+    });
+    badgeScale();
+    redraw();
+  }
+
+  // Map: the height grid shaded once, the route and the drone drawn on top; it follows the drone, north up.
+  const mini = $("mini"), mctx = mini.getContext("2d");
+  let miniBase = null, miniStale = true;
+  function buildMiniBase() {
+    const D = 4, w = Math.floor(HF.nx / D), h = Math.floor(HF.nz / D);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"), img = g.createImageData(w, h);
+    const bg = new THREE.Color(colors.sheet), hi = new THREE.Color(colors.ink), lo = new THREE.Color(colors.muted), col = new THREE.Color();
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+      let m = -1e9; for (let b = 0; b < D; b++) for (let a = 0; a < D; a++) m = Math.max(m, HF.h[(j * D + b) * HF.nx + i * D + a]);
+      const o = 4 * (j * w + i);
+      if (m < groundY + 2) col.copy(bg); else col.copy(lo).lerp(hi, clamp((m - groundY) / 220, 0, 1)).lerp(bg, 0.25);
+      img.data[o] = col.r * 255; img.data[o + 1] = col.g * 255; img.data[o + 2] = col.b * 255; img.data[o + 3] = 255;
+    }
+    g.putImageData(img, 0, 0); miniBase = { c, D }; miniStale = false;
+  }
+  function drawMini() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2), W = mini.clientWidth, Hh = mini.clientHeight;
+    if (!W) return;
+    if (mini.width !== Math.round(W * dpr)) { mini.width = Math.round(W * dpr); mini.height = Math.round(Hh * dpr); }
+    if (!miniBase || miniStale) buildMiniBase();
+    const span = 900, k = W / span;                     // metres across the map
+    const cx = pose.pos.x, cz = pose.pos.z, toX = x => (x - cx) * k + W / 2, toY = z => (z - cz) * k + Hh / 2;
+    mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    mctx.fillStyle = colors.sheet; mctx.fillRect(0, 0, W, Hh);
+    const D = miniBase.D * HF.cell;                     // metres per base pixel
+    mctx.imageSmoothingEnabled = true;
+    mctx.drawImage(miniBase.c, toX(HF.x0), toY(HF.z0), miniBase.c.width * D * k, miniBase.c.height * D * k);
+    if (R && showRoute) {
+      mctx.lineWidth = 2; mctx.lineJoin = "round";
+      for (let q = 1; q < routeLine2D.length; q++) {
+        const a = routeLine2D[q - 1], b = routeLine2D[q];
+        mctx.strokeStyle = b[2] ? colors.warn : colors.route; mctx.beginPath(); mctx.moveTo(toX(a[0]), toY(a[1])); mctx.lineTo(toX(b[0]), toY(b[1])); mctx.stroke();
+      }
+      mctx.font = "600 9px IBM Plex Mono, monospace"; mctx.textAlign = "center"; mctx.textBaseline = "middle";
+      R.pts.forEach((p, i) => { mctx.fillStyle = colors.route; mctx.beginPath(); mctx.arc(toX(p.x), toY(p.z), 6, 0, Math.PI * 2); mctx.fill(); mctx.fillStyle = "#fff"; mctx.fillText(String(i + 1), toX(p.x), toY(p.z) + 0.5); });
+    }
+    // The drone, with a wedge for the lens's field of view.
+    const x = W / 2, y = Hh / 2, h = pose.yaw * RAD, half = Math.min(80, camera.fov * camera.aspect / 2) * RAD;
+    mctx.fillStyle = colors.accent; mctx.globalAlpha = 0.18; mctx.beginPath(); mctx.moveTo(x, y);
+    mctx.arc(x, y, 46, h - half - Math.PI / 2, h + half - Math.PI / 2); mctx.closePath(); mctx.fill(); mctx.globalAlpha = 1;
+    mctx.beginPath(); mctx.arc(x, y, 4, 0, Math.PI * 2); mctx.fill();
+    mctx.strokeStyle = colors.rule; mctx.lineWidth = 1; mctx.strokeRect(0.5, 0.5, W - 1, Hh - 1);
+    mctx.fillStyle = colors.muted; mctx.font = "500 9px IBM Plex Mono, monospace"; mctx.textAlign = "left"; mctx.fillText("N ↑ · 900 m", 6, 11);
+  }
+
+  // ---- Anchor list ----
+  const list = $("anchors"), msg = $("msg");
+  let sel = -1, sayTimer = 0;
+  function say(t) { msg.textContent = t; clearTimeout(sayTimer); sayTimer = setTimeout(() => { msg.textContent = ""; }, 6000); }
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function metaText(a) {
+    const aim = a.target ? ` · aims ${Math.round(Math.hypot(a.target[0] - a.p[0], a.target[2] - a.p[2]))} m away` : ` · heading ${Math.round(a.yaw)}° · tilt ${Math.round(a.pitch)}°`;
+    return `${Math.round(a.p[1])} m up${aim} · ${a.zoom.toFixed(1)}×`;
+  }
+  function legText(i) {
+    if (!R || i >= R.legs.length) return "";
+    const g = R.legs[i];
+    return g.clip ? `→ ${Math.round(g.L)} m in ${g.T.toFixed(1)} s · passes through a building` : `→ ${Math.round(g.L)} m in ${g.T.toFixed(1)} s`;
+  }
+  function renderList() {
+    list.innerHTML = route.map((a, i) => `<li class="anchor${i === sel ? " sel" : ""}${i === play.live ? " live" : ""}" data-i="${i}">
+      <div class="a-head"><span class="a-num">${i + 1}</span><input class="a-name" data-k="name" value="${esc(a.name)}" aria-label="Name of anchor ${i + 1}"><span class="a-meta">${metaText(a)}</span></div>
+      <div class="a-fields">
+        <label>Zoom <input type="number" data-k="zoom" min="${ZMIN}" max="${ZMAX}" step="0.1" value="${a.zoom}">×</label>
+        <label>Hold <input type="number" data-k="hold" min="0" max="60" step="0.5" value="${a.hold}"> s</label>
+        ${i < route.length - 1 ? `<label>Speed to next <input type="number" data-k="speed" min="2" max="150" step="1" value="${a.speed}"> m/s</label><span class="a-leg${R && R.legs[i].clip ? " bad" : ""}">${legText(i)}</span>` : ""}
+      </div>
+      <div class="a-actions">
+        <button type="button" data-act="go">Go here</button>
+        <button type="button" data-act="set">Set to current view</button>
+        <button type="button" data-act="aim" class="${aimIdx === i ? "on" : ""}">${aimIdx === i ? "Click a building…" : "Aim at a building"}</button>
+        ${a.target ? `<button type="button" data-act="unaim">Free camera</button>` : ""}
+        <button type="button" data-act="up" ${i === 0 ? "disabled" : ""} aria-label="Move anchor ${i + 1} earlier">↑</button>
+        <button type="button" data-act="down" ${i === route.length - 1 ? "disabled" : ""} aria-label="Move anchor ${i + 1} later">↓</button>
+        <button type="button" data-act="del" aria-label="Delete anchor ${i + 1}">Delete</button>
+      </div></li>`).join("");
+  }
+  function markLive(i) {
+    if (i === play.live) return; play.live = i;
+    list.querySelectorAll(".anchor").forEach(li => li.classList.toggle("live", +li.dataset.i === i));
+  }
+  function refreshLegs() {
+    list.querySelectorAll(".anchor").forEach(li => {
+      const i = +li.dataset.i, leg = li.querySelector(".a-leg"), meta = li.querySelector(".a-meta");
+      if (leg) { leg.textContent = legText(i); leg.classList.toggle("bad", !!(R && R.legs[i] && R.legs[i].clip)); }
+      if (meta && route[i]) meta.textContent = metaText(route[i]);
+    });
+  }
+  // structural: the list's rows changed, so redraw it; otherwise only refresh the leg readouts (keeps focus in the field being typed in).
+  function routeChanged(structural = true) {
+    buildRoute(); buildOverlay(); save();
+    if (R) play.t = Math.min(play.t, R.total); else play.t = 0;
+    if (structural) renderList(); else refreshLegs();
+    syncTransport();
+  }
+  function poseAnchor(name) {
+    return { name, p: [round1(pose.pos.x), round1(pose.pos.y - groundY), round1(pose.pos.z)], yaw: round1(pose.yaw), pitch: round1(pose.pitch), zoom: Math.round(pose.zoom * 10) / 10, hold: 0, speed: 20 };
+  }
+  function addAnchor() {
+    pausePlay();
+    const at = sel >= 0 ? sel + 1 : route.length;
+    route.splice(at, 0, poseAnchor(`Anchor ${route.length + 1}`)); sel = at;
+    routeChanged(); say(`Anchor ${at + 1} added at this view.`);
+  }
+  list.addEventListener("input", e => {
+    const li = e.target.closest(".anchor"), k = e.target.dataset.k; if (!li || !k) return;
+    const a = route[+li.dataset.i];
+    if (k === "name") { a.name = e.target.value.slice(0, 60); save(); return; }
+    const v = parseFloat(e.target.value); if (!Number.isFinite(v)) return;
+    a[k] = k === "zoom" ? clamp(v, ZMIN, ZMAX) : k === "hold" ? clamp(v, 0, 60) : clamp(v, 2, 150);
+    routeChanged(false);
+  });
+  list.addEventListener("focusin", e => { const li = e.target.closest(".anchor"); if (li) selectRow(+li.dataset.i); });
+  list.addEventListener("click", e => {
+    const li = e.target.closest(".anchor"); if (!li) return;
+    const i = +li.dataset.i, act = e.target.closest("button")?.dataset.act;
+    selectRow(i);
+    if (!act) return;
+    const a = route[i];
+    if (act === "go") { pausePlay(); if (R) { play.t = R.arrive[i]; setPose(sample(play.t)); markLive(i); } else setPose({ pos: anchorPos(a), yaw: a.yaw, pitch: a.pitch, zoom: a.zoom }); syncTransport(); return; }
+    if (act === "set") { Object.assign(a, poseAnchor(a.name), { hold: a.hold, speed: a.speed }); delete a.target; say(`Anchor ${i + 1} moved to this view.`); }
+    if (act === "aim") { setAim(aimIdx === i ? null : i); canvas.focus({ preventScroll: true }); return; }
+    if (act === "unaim") { const l = lookAngles(anchorPos(a), anchorPos({ p: a.target })); a.yaw = round1(l.yaw); a.pitch = round1(l.pitch); delete a.target; }
+    if (act === "up" && i > 0) { [route[i - 1], route[i]] = [route[i], route[i - 1]]; sel = i - 1; }
+    if (act === "down" && i < route.length - 1) { [route[i + 1], route[i]] = [route[i], route[i + 1]]; sel = i + 1; }
+    if (act === "del") { route.splice(i, 1); sel = Math.min(i, route.length - 1); if (aimIdx != null) setAim(null); }
+    routeChanged();
+  });
+  function selectRow(i) { if (sel === i) return; sel = i; list.querySelectorAll(".anchor").forEach(li => li.classList.toggle("sel", +li.dataset.i === i)); }
+  $("add").addEventListener("click", addAnchor);
+  $("reset").addEventListener("click", () => { pausePlay(); route = validRoute(SAMPLE); sel = -1; play.t = 0; routeChanged(); say("Sample route restored."); });
+  $("clear").addEventListener("click", () => { pausePlay(); route = []; sel = -1; play.t = 0; routeChanged(); say("Route cleared. Fly somewhere and press N, or ＋ Anchor at this view."); });
+  $("copy").addEventListener("click", () => {
+    const txt = JSON.stringify(route, null, 1);
+    $("pastebox").value = txt; $("pastebox").closest("details").open = true;
+    (navigator.clipboard?.writeText(txt) || Promise.reject()).then(() => say("Route copied as JSON."), () => say("Route shown below as JSON; copy it from there."));
+  });
+  $("load").addEventListener("click", () => {
+    let r = null; try { r = validRoute(JSON.parse($("pastebox").value)); } catch (e) {}
+    if (!r || r.length < 1) { say("That isn't a route this page can read."); return; }
+    pausePlay(); route = r; sel = -1; play.t = 0; routeChanged(); say(`Loaded ${r.length} anchors.`);
+  });
+
+  // ---- HUD ----
+  let lastPos = pose.pos.clone(), spd = 0;
+  function showHud(dt) {
+    const p = pose.pos, alt = p.y - groundY, cl = clearance(p);
+    const lat = 35.6660 - p.z / KZ, lon = 139.7505 + p.x / KX;
+    const mode = play.on ? `ROUTE ${fmt(play.t)}` : aimIdx != null ? "AIM" : "FLY";
+    hud.innerHTML = `<span class="mode">${mode}</span> · alt ${Math.round(alt)} m · ${Math.round(spd)} m/s · heading ${Math.round(pose.yaw)}° · tilt ${Math.round(pose.pitch)}° · zoom ${pose.zoom.toFixed(1)}× · ` +
+      (cl < Infinity ? `<span class="${cl < 8 || performance.now() - bumped < 600 ? "close" : ""}">wall ${Math.round(cl)} m</span>` : "open air") +
+      ` · ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  }
+
+  // ---- Loop ----
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight, pr = renderer.getPixelRatio();
+    if (canvas.width !== Math.round(w * pr) || canvas.height !== Math.round(h * pr)) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); dirty = true; }
+  }
+  let last = performance.now(), hudAt = 0;
+  (function loop(now) {
+    now = now || performance.now(); const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    resize(); stepPlay(dt, now); stepDrone(dt);
+    if (dt > 0) { const v = pose.pos.distanceTo(lastPos) / dt; if (v < 400) spd += (v - spd) * Math.min(1, dt * 6); lastPos.copy(pose.pos); }   // a jump (Go here, scrubbing) isn't speed
+    if (dirty) { dirty = false; renderer.render(scene, camera); drawMini(); }
+    if (now - hudAt > 120) { hudAt = now; showHud(); if (spd < 0.05) spd = 0; }
+    requestAnimationFrame(loop);
+  })();
+  window.addEventListener("resize", redraw);
+
+  // ---- Tiles ----
+  const draco = new THREE.DRACOLoader();
+  draco.setDecoderPath("draco/"); draco.setDecoderConfig({ type: "js" });
+  const loader = new THREE.GLTFLoader(); loader.setDRACOLoader(draco);
+  let loaded = 0;
+  route = loadRoute(); routeChanged(); uiReady = true;
+  if (route.length) setPose(sample(0)); else applyPose();
+  loadNext(0);
+  function loadNext(i) {
+    if (i >= TILES.length) { status.textContent = `${loaded} of ${TILES.length} tiles · 977 buildings`; return; }
+    const name = TILES[i];
+    status.textContent = `Loading tile ${i + 1} of ${TILES.length}…`;
+    const onFail = () => { status.textContent = `Tile ${name} didn't load; continuing.`; loadNext(i + 1); };
+    fetch(`tiles/${name}.glb.txt`).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); }).then(b64 => {
+      const raw = atob(b64.trim()), buf = new Uint8Array(raw.length);
+      for (let k = 0; k < raw.length; k++) buf[k] = raw.charCodeAt(k);
+      loader.parse(buf.buffer, "", gltf => {
+        gltf.scene.traverse(o => {
+          if (!o.isMesh) return;
+          const src = o.material;
+          const mat = new THREE.MeshLambertMaterial({ map: src.map || null, color: src.map ? 0xffffff : 0xe9ebec, side: THREE.DoubleSide });
+          if (mat.map) mat.map.encoding = THREE.sRGBEncoding;
+          o.material = mat; pickables.push(o);
+        });
+        scene.add(gltf.scene); gltf.scene.updateMatrixWorld(true);
+        if (loaded === 0) {
+          groundY = streetLevel(gltf.scene); ground.position.y = groundY - 0.3;
+          buildRoute(); if (!play.on) { if (R) setPose(sample(play.t)); else { pose.pos.y += groundY; applyPose(); } }
+        }
+        gltf.scene.traverse(o => { if (o.isMesh) rasterMesh(o); });
+        miniStale = true; loaded++;
+        routeChanged(false);                            // walls changed: re-check the legs for clipping
+        loadNext(i + 1);
+      }, onFail);
+    }).catch(onFail);
+  }
+  // Street level: median of each building's lowest point (a tile's overall minimum includes basements).
+  function streetLevel(root) {
+    const mins = new Map(), v = new THREE.Vector3();
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      const pos = o.geometry.getAttribute("position"), bid = o.geometry.getAttribute("_batchid");
+      if (!bid) return;
+      for (let k = 0; k < pos.count; k++) {
+        v.fromBufferAttribute(pos, k).applyMatrix4(o.matrixWorld);
+        const b = bid.getX(k), m = mins.get(b);
+        if (m === undefined || v.y < m) mins.set(b, v.y);
+      }
+    });
+    const arr = [...mins.values()].sort((a, b) => a - b);
+    return arr.length ? arr[Math.floor(arr.length / 2)] : 0;
+  }
+})();
+</script>
