@@ -114,6 +114,15 @@ that flies itself. It is MapKit's keyframe idea with a drone's camera model in p
 - **The sample route** (95 s, 9 anchors) was planned on that grid. It comes in from Shimbashi, drops to 40 m and passes
   the 40 m gap between Mori Tower and Business Tower (its closest wall is 15 m away), climbs the face of Station Tower,
   then arcs round Mori Tower's crown while the lens closes from 1.6× to 3.2×.
+- **Tour links.** *Copy tour link* packs the route into the link's `#tour=` fragment. Each anchor becomes a row of
+  numbers rounded to 0.1 m and 0.1°, compressed with `deflate-raw` and base64url-encoded, so the 9-anchor sample is
+  about 430 characters and nothing is uploaded. Opening the link flies the tour once the tiles have loaded; with
+  reduced motion on, it waits for Play instead. A shared tour is never saved over the visitor's own route unless they
+  choose *Keep as my route*. Decoding stops at 1 MB of output and 200 anchors, so a hostile link can't hang the page.
+- **Recording.** *Record* rewinds to the start and captures the canvas at 30 fps with `MediaRecorder` while the route
+  plays. It records MP4 (H.264) where the browser supports it, otherwise WebM. Taking the drone, scrubbing or
+  restarting stops it early and keeps a partial clip. Inside claude.ai the clip is saved through the viewer's download
+  prompt; elsewhere through a plain download link.
 
 ## Sources
 
