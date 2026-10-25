@@ -136,7 +136,17 @@ def quests(bags):
     ]
 
 
-def main(root):
+def write(path, v):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(v, pd.DataFrame):
+        v.to_parquet(path)
+    else:
+        path.write_text(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
+
+
+def main(root, enrich=None):
+    """enrich(b, q, bags) → (b, q, files): more buildings and parts, and files {path under root: content} written
+    over the plain fixture's (data/ before s03_tiles, web/ after); tests/questgen_fixture.py uses it."""
     root = Path(root).resolve()
     (root / "data" / "raw").mkdir(parents=True, exist_ok=True)
     web = root / "web"
@@ -145,12 +155,18 @@ def main(root):
         if f != "data" and not (web / f).exists():
             (web / f).symlink_to(REPO / "web" / f)
     b, q, bags = city()
+    files = {}
+    if enrich:
+        b, q, files = enrich(b, q, bags)
     wk = {bag: i for i, bag in enumerate(bags.values())}
     b.drop(columns="key").to_parquet(root / "data" / "buildings.parquet")
     q.to_parquet(root / "data" / "parts.parquet")
     pd.DataFrame(dict(identificatie=b.identificatie, lay0=0, lay1=0)).to_parquet(root / "data" / "layers.parquet")
     pd.DataFrame(dict(bag=list(wk), wk=list(wk.values()))).to_parquet(root / "data" / "wiki_index.parquet")
     (root / "data" / "raw" / "energy.json").write_text("{}")
+    for rel, v in files.items():
+        if rel.startswith("data/"):
+            write(root / rel, v)
     env = dict(os.environ, PYTHONPATH=str(REPO))
     subprocess.run([sys.executable, "-m", "pipeline.s03_tiles"], cwd=root, env=env, check=True)
     out = root / "web" / "data"
@@ -163,6 +179,9 @@ def main(root):
     (out / "facts.json").write_text("{}")
     (out / "wiki.json").write_text(json.dumps([dict(label=LANDMARKS[k][0], label_nl=LANDMARKS[k][0]) for k in bags]))
     (out / "quests.json").write_text(json.dumps(quests(bags)))
+    for rel, v in files.items():
+        if rel.startswith("web/"):
+            write(root / rel, v)
     subprocess.run([sys.executable, "-m", "pipeline.s13_quests", "--routes-only"], cwd=root, env=env, check=True)
     print("fixture city in", root)
 
