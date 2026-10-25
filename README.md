@@ -58,10 +58,13 @@ node tests/flyover_check.mjs http://localhost:8642       # headless: flights, ha
 attributes (year, context layers, monument status, height, names, photos, checked facts and stories), picks a varied,
 notable and compact set, orders it as a walk, writes find / where / year / choice steps that say only what the data
 holds, and plans the flyover with the same planner as `s13_quests`. Each stage is a registry of swappable modules.
+A theme's roles (an era, sometimes a function: a medieval church, a post-war tower) each fill their own stops, so a
+quest spans the eras, and the seed picks among each role's best candidates.
 
 ```bash
 uv run python -m pipeline.questgen --list-themes
 uv run python -m pipeline.questgen --theme amsterdam-school --stops 6 --seed 1          # preview (--json for JSON)
+uv run python -m pipeline.questgen --theme churches-towers --roles medieval,modern,counterpoint   # or --no-roles
 uv run python -m pipeline.questgen --theme churches-towers --start dam --within 1500 --write --save
 uv run python tests/test_questgen.py                                                    # on the fixture city
 ```

@@ -4,6 +4,8 @@
     python -m pipeline.questgen --theme amsterdam-school --stops 6 --seed 1              # readable preview
     python -m pipeline.questgen --theme amsterdam-school --seed 1 --json                 # the quest as JSON
     python -m pipeline.questgen --theme churches-towers --start dam --within 1500 --write --save
+    python -m pipeline.questgen --theme churches-towers --roles medieval,golden-age,counterpoint   # other roles
+    python -m pipeline.questgen --theme skyline --no-roles                                        # no roles
 
 Run from the folder that holds data/ and web/data/ (the repository after a pipeline run), or pass --root.
 --write puts the quest into web/data/quests.json; --save also keeps its spec in pipeline/questgen/specs.json, so
@@ -25,6 +27,10 @@ def list_themes(city=None):
         print(f"{'':20s} {th.title['en']}: requires {th.require}")
         if th.prefer:
             print(f"{'':20s} prefers " + ", ".join(f"{c} ×{w:g}" for c, w in th.prefer))
+        for r in th.roles:
+            n = f", {int((r.cond.mask(city.df) & (True if r.own else th.require.mask(city.df))).sum())} candidates" \
+                if city is not None else ""
+            print(f"{'':20s} role {r}{n}")
     print()
     for label, reg in (("source", SOURCES), ("select", SELECTORS), ("order", ORDERS), ("route", PLANNERS),
                        ("steps", WRITERS)):
@@ -40,6 +46,9 @@ def main(argv=None):
     ap.add_argument("--start", help="where the walk begins: dam, x,z (metres from the Dam, x east, z south) or bag:<id>")
     ap.add_argument("--within", type=float, help="metres around the start (or the Dam) the stops must lie in")
     ap.add_argument("--id", help="quest id (default gen-<theme>-<seed>)")
+    ap.add_argument("--roles", help="the theme's roles to fill, comma-separated (default: its default roles; see "
+                                    "--list-themes)")
+    ap.add_argument("--no-roles", action="store_true", help="fill no roles: every stop from the theme's whole pool")
     for stage, default in STAGES.items():
         ap.add_argument(f"--{stage}", default=default, help=f"{stage} module (default {default})")
     ap.add_argument("--root", help="folder with data/ and web/data/ (default: here)")
@@ -50,8 +59,15 @@ def main(argv=None):
     ap.add_argument("--specs", default=str(SPECS), help=f"spec file for --save (default {SPECS})")
     a = ap.parse_args(argv)
     a.specs = os.path.abspath(a.specs)
+    if a.roles is not None and a.no_roles:
+        ap.error("--roles and --no-roles exclude each other")
+    roles = [] if a.no_roles else None if a.roles is None else [r.strip() for r in a.roles.split(",") if r.strip()]
     if a.root:
+        if not os.path.isdir(a.root):
+            ap.error(f"--root {a.root}: no such folder")
         os.chdir(a.root)
+    if not a.list_themes and not os.path.exists("data/buildings.parquet"):
+        ap.error(f"no data/buildings.parquet in {os.getcwd()}: run from the pipeline's folder or pass --root")
 
     from .city import City
 
@@ -62,10 +78,11 @@ def main(argv=None):
         ap.error("--theme is required (see --list-themes)")
     city = City.load()
     try:
-        quest = build(a.theme, a.stops, a.seed, city, a.start, a.within, a.id,
+        quest = build(a.theme, a.stops, a.seed, city, a.start, a.within, a.id, roles=roles,
                       **{k: getattr(a, k) for k in STAGES})
     except (BuildError, RuntimeError, ValueError) as e:
-        print(f"{a.theme}: {e}", file=sys.stderr)
+        msg = str(e)
+        print(msg if msg.startswith(f"{a.theme}:") else f"{a.theme}: {msg}", file=sys.stderr)
         return 1
     problems = validate(quest, city)
     print(json.dumps(quest, ensure_ascii=False, indent=1) if a.json else describe(quest, city))

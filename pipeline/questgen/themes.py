@@ -4,6 +4,11 @@ A theme is data: `require` says which buildings may be a checkpoint, `prefer` we
 `nouns` names a checkpoint in a riddle only where the data says so (a building in the 'Church' group of the faith
 layer is a church; anything else is a building). Conditions combine with & | ~.
 
+`roles` are named slots, each with its own condition (mostly an era, sometimes a function) and a count: selection
+fills every role from its own candidates, then the stops left over from the theme's whole pool, so a quest spans the
+eras instead of repeating the theme's best-known corner. A role with `own=True` draws from beyond `require` (a modern
+tower as a counterpoint to the churches); a role with `default=False` is used only when asked for (--roles).
+
 Add a theme with THEMES.register(Theme(...)). The group keys are the context layers' (layers.py, s05_layers):
 g:<layer id>:<group key>, or <layer id>:* for any group of a layer.
 """
@@ -108,6 +113,20 @@ class Text(Cond):
 
 
 @dataclass(frozen=True)
+class Name(Cond):
+    """A regular expression over the Wikidata names only (case-insensitive)."""
+    pattern: str
+
+    def mask(self, df):
+        rx = re.compile(self.pattern, re.I)
+        txt = df.name_en.fillna("") + "|" + df.name_nl.fillna("")
+        return txt.map(lambda s: bool(rx.search(s)))
+
+    def __str__(self):
+        return f"name /{self.pattern}/"
+
+
+@dataclass(frozen=True)
 class Has(Cond):
     """name, photo, fact, story, wiki, architect"""
     what: str
@@ -170,7 +189,7 @@ class Any(Cond):
         return m
 
     def __str__(self):
-        return " or ".join(str(c) for c in self.conds)
+        return " or ".join(f"({c})" if isinstance(c, All) else str(c) for c in self.conds)
 
 
 @dataclass(frozen=True)
@@ -189,6 +208,20 @@ BUILDING = N("building", "gebouw", het=True)
 
 
 @dataclass(frozen=True)
+class Role:
+    name: str
+    label: dict                      # T(en, nl), for the preview
+    cond: Cond
+    count: int = 1
+    default: bool = True             # used unless --roles names others
+    own: bool = False                # its own pool, beyond the theme's `require`
+
+    def __str__(self):
+        return (f"{self.name}{f' ×{self.count}' if self.count > 1 else ''}: {self.label['en']} ({self.cond})"
+                + (", own pool" if self.own else "") + ("" if self.default else ", only with --roles"))
+
+
+@dataclass(frozen=True)
 class Theme:
     id: str
     title: dict
@@ -202,9 +235,22 @@ class Theme:
     radius: float = 1200.0           # the stops lie within twice this of each other
     gap: float = 60.0                # and at least this far apart
     noun: dict = field(default_factory=lambda: BUILDING)
+    roles: tuple = ()                # Role(...)s
+
+    def pick_roles(self, names=None):
+        """The roles a quest fills: the default ones, or those named (an empty list: none)."""
+        if names is None:
+            return tuple(r for r in self.roles if r.default)
+        known = {r.name: r for r in self.roles}
+        bad = [n for n in names if n not in known]
+        if bad:
+            raise ValueError(f"{self.id}: no role {', '.join(bad)}; known: {', '.join(known) or 'none'}")
+        return tuple(known[n] for n in dict.fromkeys(names))
 
 
 AS = ("Amsterdamse school", "Amsterdam School")
+PUBLIC = (r"school|brug|bridge|\bbad|badhuis|bath|post|kantoor|office|beurs|theat|bioscoop|cinema|bibliothe|library"
+          r"|kerk|kapel|church|chapel|huis\b")
 
 for theme in [
     Theme("amsterdam-school", T("Amsterdam School", "Amsterdamse School"),
@@ -215,29 +261,50 @@ for theme in [
           require=Years(1910, 1945) & (Group("styles:as") | Group("architects:as") | Text("|".join(AS))),
           prefer=((Group("planned:Plan Zuid"), 1.0), (Group("housing:woningwet"), 1.0), (Monument(), 1.0),
                   (Has("architect"), 1.0)),
-          kinds=("find", "choice", "year", "where")),
+          kinds=("find", "choice", "year", "where"),
+          roles=(Role("early", T("Early, 1914–1923", "Vroeg, 1914–1923"), Years(1914, 1923)),
+                 Role("late", T("Late, 1924–1940", "Laat, 1924–1940"), Years(1924, 1940)),
+                 Role("housing", T("Housing block", "Woonblok"), Group("housing:woningwet")),
+                 Role("public", T("School, bridge or public building", "School, brug of openbaar gebouw"),
+                      Name(PUBLIC)))),
     Theme("golden-age-canals", T("Golden Age canals", "Grachten van de Gouden Eeuw"),
           T("Merchants' houses on the canal ring, dug and built up in the seventeenth century. Read their age in "
             "their gables.",
             "Koopmanshuizen aan de grachtengordel, gegraven en bebouwd in de zeventiende eeuw. Lees hun leeftijd af "
             "aan hun gevels."),
-          require=Group("unesco:Kernzone") & Years(1600, 1700),
+          require=Group("unesco:Kernzone") & Years(1580, 1700),
           prefer=((Group("gables:*"), 1.5), (Monument(), 1.0), (Has("fact"), 1.0), (Has("name"), 1.0)),
           nouns=((Group("faith:worship"), N("church", "kerk")),
+                 (Group("trade:pakhuis"), N("warehouse", "pakhuis", het=True)),
                  (Group("gables:trap"), N("house with a stepped gable", "huis met een trapgevel", het=True)),
                  (Group("gables:hals"), N("house with a neck gable", "huis met een halsgevel", het=True)),
-                 (Group("gables:klok"), N("house with a bell gable", "huis met een klokgevel", het=True)),
-                 (Group("trade:pakhuis"), N("warehouse", "pakhuis", het=True))),
-          kinds=("year", "find", "choice", "where"), radius=900.0, gap=40.0),
+                 (Group("gables:klok"), N("house with a bell gable", "huis met een klokgevel", het=True))),
+          kinds=("year", "find", "choice", "where"), radius=900.0, gap=40.0,
+          roles=(Role("early", T("Early, 1580–1640", "Vroeg, 1580–1640"), Years(1580, 1640)),
+                 Role("late", T("Late, 1641–1700", "Laat, 1641–1700"), Years(1641, 1700)),
+                 Role("canal-house", T("Gabled canal house", "Grachtenpand met een gevel"),
+                      Group("gables:*") & ~Group("trade:pakhuis") & ~Group("faith:*")),
+                 Role("warehouse", T("Warehouse", "Pakhuis"), Group("trade:pakhuis")),
+                 Role("church", T("Church", "Kerk"), Group("faith:worship")),
+                 Role("hofje", T("Almshouse (hofje)", "Hofje"), Group("faith:hofje")))),
     Theme("churches-towers", T("Churches and towers", "Kerken en torens"),
           T("Spires, domes and towers: the landmarks the city has steered by for centuries.",
             "Spitsen, koepels en torens: de bakens waar de stad al eeuwen op koerst."),
+          # the faith layer, or a name before 1900: a modern 'tower' comes in only as the counterpoint role
           require=(Group("faith:worship") | Group("faith:synagogue")
-                   | Text(r"\b(kerk|church|toren|tower|kapel|chapel|synago\w*|basiliek|basilica)\b")),
+                   | (Text(r"\b(kerk|church|toren|tower|kapel|chapel|synago\w*|basiliek|basilica)\b")
+                      & Years(1000, 1899))),
           prefer=((Taller(40), 2.0), (Monument(), 1.0), (Has("fact"), 1.0), (Has("photo"), 1.0)),
           nouns=((Group("faith:synagogue"), N("synagogue", "synagoge")),
-                 (Group("faith:worship"), N("church", "kerk"))),
-          kinds=("where", "find", "year", "choice"), level=1, stops=5, radius=1600.0, gap=120.0),
+                 (Group("faith:worship"), N("church", "kerk")),
+                 (Taller(60) & Years(1900, 2100), N("tower", "toren"))),
+          kinds=("where", "find", "year", "choice"), level=1, stops=5, radius=1600.0, gap=120.0,
+          roles=(Role("medieval", T("Medieval, before 1580", "Middeleeuws, voor 1580"), Years(1000, 1579)),
+                 Role("golden-age", T("Golden Age, 1580–1700", "Gouden Eeuw, 1580–1700"), Years(1580, 1700)),
+                 Role("18th-19th", T("18th and 19th century", "18e en 19e eeuw"), Years(1701, 1899)),
+                 Role("modern", T("20th century or later", "20e eeuw of later"), Years(1900, 2100)),
+                 Role("counterpoint", T("A modern tower, as a counterpoint", "Een moderne toren, als tegenhanger"),
+                      Years(1950, 2100) & Taller(60) & ~Group("faith:*"), default=False, own=True))),
     Theme("post-war-rebuild", T("Rebuilding after the war", "Herbouw na de oorlog"),
           T("Where bombs fell, and where the city built anew after 1945: new blocks, garden cities and the art the "
             "city set into their walls.",
@@ -247,7 +314,13 @@ for theme in [
                                       | Group("planned:Western garden cities")),
           prefer=((Group("noord1943:rebuilt"), 2.0), (Group("wallart:top"), 1.5), (Group("wallart:*"), 1.0),
                   (Has("story"), 1.0)),
-          kinds=("find", "year", "choice", "where"), level=2, stops=5, radius=1500.0),
+          nouns=((Group("wallart:*"), N("building with wall art", "gebouw met wandkunst", het=True)),),
+          kinds=("find", "year", "choice", "where"), level=2, stops=5, radius=1500.0,
+          roles=(Role("early", T("Rebuilding, 1945–1959", "Wederopbouw, 1945–1959"), Years(1945, 1959)),
+                 Role("late", T("1960–1975", "1960–1975"), Years(1960, 1975)),
+                 Role("wall-art", T("Wall art", "Wandkunst"), Group("wallart:*")),
+                 Role("noord", T("Rebuilt after the raid on Noord", "Herbouwd na het bombardement op Noord"),
+                      Group("noord1943:rebuilt")))),
     Theme("warehouses", T("Warehouses and the companies", "Pakhuizen en de compagnieën"),
           T("Amsterdam stored the goods of the world in its houses: warehouses with hoisting beams and shutters, "
             "and the buildings of the East and West India Companies.",
@@ -256,27 +329,48 @@ for theme in [
           require=Group("trade:*"),
           prefer=((Group("trade:company"), 2.0), (Has("fact"), 1.0), (Has("name"), 1.0), (Monument(), 0.5)),
           nouns=((Group("trade:pakhuis"), N("warehouse", "pakhuis", het=True)),),
-          kinds=("find", "year", "choice", "where"), stops=5, radius=1000.0, gap=50.0),
-    Theme("skyline", T("The new skyline", "De nieuwe skyline"),
-          T("Towers from the Bijlmer to the Zuidas and across the IJ: the city grew up as well as out.",
-            "Torens van de Bijlmer tot de Zuidas en over het IJ: de stad groeide de hoogte in, niet alleen de breedte."),
-          require=Years(1965, 2100) & Taller(60),
+          kinds=("find", "year", "choice", "where"), stops=5, radius=1000.0, gap=50.0,
+          roles=(Role("17th", T("Before 1700", "Voor 1700"), Years(1000, 1699)),
+                 Role("18th", T("18th century", "18e eeuw"), Years(1700, 1799)),
+                 Role("19th", T("19th century or later", "19e eeuw of later"), Years(1800, 2100)),
+                 Role("company", T("VOC or WIC building", "Gebouw van de VOC of WIC"), Group("trade:company")))),
+    Theme("skyline", T("The skyline", "De skyline"),
+          T("From the church spires the city steered by to the towers of the Bijlmer, the Zuidas and across the IJ: "
+            "the city grew up as well as out.",
+            "Van de kerktorens waar de stad op koerste tot de torens van de Bijlmer, de Zuidas en over het IJ: de stad "
+            "groeide de hoogte in, niet alleen de breedte."),
+          require=Taller(60) | (Taller(40) & Has("name")),
           prefer=((Taller(100), 2.0), (Has("name"), 1.0), (Has("photo"), 1.0), (Group("arcam:*"), 1.0)),
-          kinds=("choice", "where", "find", "year"), level=1, stops=5, radius=2500.0, gap=150.0),
+          nouns=((Group("faith:worship"), N("church", "kerk")),),
+          kinds=("choice", "where", "find", "year"), level=1, stops=5, radius=2500.0, gap=150.0,
+          roles=(Role("spire", T("A historic spire, before 1800", "Een historische toren, voor 1800"),
+                      Years(1000, 1799)),
+                 Role("19th-early-20th", T("19th or early 20th century", "19e of vroege 20e eeuw"),
+                      Years(1800, 1940)),
+                 Role("post-war", T("Post-war, 1945–1984", "Naoorlogs, 1945–1984"), Years(1945, 1984)),
+                 Role("contemporary", T("Contemporary, since 1985", "Hedendaags, sinds 1985"), Years(1985, 2100)))),
 ]:
     THEMES.register(theme.id, theme)
 
 
 # ---------- sourcing ----------
 @SOURCES.register("attributes")
-def from_attributes(theme, city, area=None):
+def from_attributes(theme, city, area=None, roles=()):
     """Every checkpoint the theme requires (within the area, a Cond, if given), with `fit` in [0, 1] from the
-    theme's preferences and the `noun` the data supports."""
+    theme's preferences and the `noun` the data supports. `general` marks what the theme requires; each role adds a
+    column role:<name>, true for its own candidates (an `own` role's need not be general)."""
     df = city.df
-    m = theme.require.mask(df)
+    general = theme.require.mask(df)
+    m = general.copy()
+    for r in roles:
+        if r.own:
+            m |= r.cond.mask(df)
     if area is not None:
         m &= area.mask(df)
     c = df[m].copy()
+    c["general"] = general[m]
+    for r in roles:
+        c[f"role:{r.name}"] = r.cond.mask(c) & (True if r.own else c.general)
     total = sum(w for _, w in theme.prefer)
     c["fit"] = sum(w * p.mask(c).astype(float) for p, w in theme.prefer) / total if total else 1.0
     noun = pd.Series([theme.noun] * len(c), index=c.index, dtype=object)

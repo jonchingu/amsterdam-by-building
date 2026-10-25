@@ -45,29 +45,50 @@ def parse_start(start, city):
     return (x, z)
 
 
-def build(theme, stops=None, seed=1, city=None, start=None, within=None, id=None, **stages):
+def start_label(start, city):
+    """What the first hint measures from: {en, nl}."""
+    if start == "dam":
+        return dict(en="the Dam", nl="de Dam")
+    if isinstance(start, str) and start.startswith("bag:"):
+        bag = start[4:].zfill(16)
+        hit = city.df[city.df.bags.map(lambda bs: bag in bs)]
+        if len(hit) and isinstance(hit.name_en.iloc[0], str):
+            from .steps import nl_name
+            return dict(en=hit.name_en.iloc[0], nl=nl_name(hit.name_nl.iloc[0] or hit.name_en.iloc[0]))
+    return dict(en="the start", nl="het startpunt")
+
+
+def build(theme, stops=None, seed=1, city=None, start=None, within=None, id=None, roles=None, **stages):
     """A quest from a theme. start: where the walk begins (see parse_start); within: metres around the start (or the
-    Dam) that the stops must lie in. stages: source, select, order, route, steps by registered name."""
+    Dam) that the stops must lie in; roles: the theme's roles to fill by name (None: its default ones, []: none).
+    stages: source, select, order, route, steps by registered name."""
     st = dict(STAGES, **{k: v for k, v in stages.items() if v})
     th = THEMES.get(theme)
-    n = int(stops or th.stops)
+    n = th.stops if stops is None else int(stops)
     if n < 2:
-        raise BuildError("a quest needs two stops or more")
+        raise BuildError(f"--stops {n}: a quest needs two stops or more")
+    if within is not None and not float(within) > 0:
+        raise BuildError(f"--within {within}: give a distance in metres above 0, or leave it out")
+    try:
+        active = th.pick_roles(None if roles is None else list(roles))
+    except ValueError as e:
+        raise BuildError(str(e))
     xy = parse_start(start, city)
     area = Near(*(xy or (0.0, 0.0)), float(within)) if within else None
     rng = lambda stage: np.random.default_rng([int(seed), stage])
-    cands = SOURCES.get(st["source"])(th, city, area)
+    cands = SOURCES.get(st["source"])(th, city, area, roles=active)
     if len(cands) < n:
-        raise BuildError(f"{theme}: {len(cands)} candidates for {n} stops")
-    chosen = SELECTORS.get(st["select"])(cands, n, th, rng(1), start=xy)
+        raise BuildError(f"{len(cands)} candidates for {n} stops")
+    chosen = SELECTORS.get(st["select"])(cands, n, th, rng(1), start=xy, roles=active)
     chosen = chosen.iloc[ORDERS.get(st["order"])(chosen[["x", "z"]].to_numpy(), xy)].reset_index(drop=True)
-    steps = WRITERS.get(st["steps"])(chosen, th, city, rng(2))
+    ref = dict(xy=xy, **start_label(start, city)) if xy is not None else None
+    steps = WRITERS.get(st["steps"])(chosen, th, city, rng(2), start=ref, cands=cands)
     quest = dict(id=id or f"gen-{theme}-{seed}", level=th.level, title=th.title,
                  intro=T(f"{th.intro['en']} {n} stops, picked from the map's own data.",
                          f"{th.intro['nl']} {n} stops, gekozen uit de gegevens van de kaart."),
                  steps=steps,
                  generated=dict(theme=theme, stops=n, seed=int(seed), start=start if isinstance(start, str) else xy,
-                                within=within, **st))
+                                within=within, roles=None if roles is None else list(roles), **st))
     route = PLANNERS.get(st["route"]).plan([s["bags"] for s in steps], city)
     if route is not None:
         quest["route"] = route
@@ -77,7 +98,7 @@ def build(theme, stops=None, seed=1, city=None, start=None, within=None, id=None
 def build_spec(spec, city, **override):
     """Rebuild a saved quest from its spec (a quest's `generated`, plus its id)."""
     spec = dict(spec, **override)
-    keys = ("theme", "stops", "seed", "start", "within", "id", *STAGES)
+    keys = ("theme", "stops", "seed", "start", "within", "id", "roles", *STAGES)
     return build(city=city, **{k: spec.get(k) for k in keys})
 
 
@@ -135,8 +156,10 @@ def describe(quest, city):
              f"  generated: theme {g['theme']}, {g['stops']} stops, seed {g['seed']}"
              + (f", start {g['start']}" if g.get("start") is not None else "")
              + (f", within {g['within']} m" if g.get("within") else "")
+             + (f", roles {','.join(g['roles']) or 'none'}" if g.get("roles") is not None else "")
              + f"; {g['source']} → {g['select']} → {g['order']} → {g['steps']} → {g['route']}",
              f"  {quest['intro']['en']}", ""]
+    roles = {r.name: r for r in THEMES.get(g["theme"]).roles}
     prev, walk = None, 0.0
     for i, s in enumerate(quest["steps"]):
         r = by_bag.get(s["bags"][0])
@@ -148,6 +171,9 @@ def describe(quest, city):
         h = f"{r.height:.0f} m" if r is not None else ""
         lines.append(f"{i + 1}. {s['kind']:6s} {name}  [{', '.join(s['bags'])}]  {where} {yr} {h}"
                      + (f"  +{hop:.0f} m" if hop else ""))
+        role = s.get("role")
+        lines.append(f"     role: {role} ({roles[role].label['en']})" if role in roles
+                     else "     role: any (the theme's pool)")
         for k in ("riddle", "ask"):
             if k in s:
                 lines.append(f"     {s[k]['en']}")

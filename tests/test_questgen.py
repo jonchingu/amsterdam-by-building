@@ -26,8 +26,9 @@ from pipeline.periods import PERIODS  # noqa: E402
 from pipeline.questgen import build as B  # noqa: E402
 from pipeline.questgen.order import length, loop, walk  # noqa: E402
 from pipeline.questgen.registry import ORDERS, PLANNERS, SELECTORS, SOURCES, THEMES, WRITERS, Registry  # noqa: E402
-from pipeline.questgen.select import SelectionError, notability  # noqa: E402
-from pipeline.questgen.steps import SRC_BAG  # noqa: E402
+from pipeline.questgen.select import SelectionError, notability, top_k  # noqa: E402
+from pipeline.questgen import steps as St  # noqa: E402
+from pipeline.questgen.steps import SRC_BAG, nl_name, period_span  # noqa: E402
 from pipeline.questgen.themes import Group, Has, Monument, Near, Taller, Text, Years  # noqa: E402
 from pipeline.s13_quests import check_quest, check_step  # noqa: E402
 
@@ -112,8 +113,9 @@ def test_sourcing_follows_each_theme():
     assert len(w) >= 4 and all(n["en"] == "church" for n in w.noun)
     assert ch[ch["g:faith:synagogue"]].noun.iloc[0]["en"] == "synagogue"
     g = candidates("golden-age-canals")
-    trap = g[g["g:gables:trap"]]
+    trap = g[g["g:gables:trap"] & ~g["g:trade:pakhuis"]]
     assert len(trap) and all("stepped gable" in n["en"] for n in trap.noun)
+    assert all(n["en"] == "warehouse" for n in g[g["g:trade:pakhuis"]].noun), "a warehouse is a warehouse, gable or not"
     near = candidates("golden-age-canals", Near(-300, 0, 200))
     assert 0 < len(near) < len(g) and (np.hypot(near.x + 300, near.z) <= 200).all()
 
@@ -149,6 +151,137 @@ def test_selection():
         pass
     else:
         raise AssertionError("too few candidates must fail")
+
+
+def overlap(sets):
+    pairs = [(a, b) for i, a in enumerate(sets) for b in sets[i + 1:]]
+    return sum(len(a & b) / len(a | b) for a, b in pairs) / len(pairs)
+
+
+def test_top_k_sampling():
+    gains = np.array([1.0, 0.95, 0.9, 0.85, 0.8, 0.2])
+    idx = np.arange(10, 16)
+    picks = {top_k(np.random.default_rng(s), idx, gains, k=4, margin=0.25) for s in range(200)}
+    assert picks == {10, 11, 12, 13}, "only the k best"
+    picks = {top_k(np.random.default_rng(s), idx, gains, k=4, margin=0.07) for s in range(200)}
+    assert picks == {10, 11}, "and only those within the margin of the best"
+    assert top_k(np.random.default_rng(3), idx, gains) == top_k(np.random.default_rng(3), idx, gains), "seeded"
+    assert {top_k(np.random.default_rng(s), idx, gains, k=1) for s in range(20)} == {10}
+
+
+def test_roles_fill_their_slots():
+    city, _ = fixture()
+    by = {b: r for r in city.df.itertuples() for b in r.bags}
+    th = THEMES.get("churches-towers")
+    for seed in range(1, 6):
+        q = B.build("churches-towers", None, seed, city, route="none")
+        roles = [s.get("role") for s in q["steps"]]
+        assert sorted(r for r in roles if r) == sorted(r.name for r in th.roles if r.default), roles
+        for s in q["steps"]:
+            r = by[s["bags"][0]]
+            if s.get("role"):
+                role = next(x for x in th.roles if x.name == s["role"])
+                assert role.cond.mask(city.df[city.df.key == r.key]).all(), (s["role"], r.year)
+            assert r.height < 60 or r.year < 1900 or r._asdict().get("g:faith:worship"), "no modern tower by default"
+    q = B.build("churches-towers", 4, 1, city, roles=["medieval", "counterpoint"], route="none")
+    tower = [by[s["bags"][0]] for s in q["steps"] if s.get("role") == "counterpoint"]
+    assert len(tower) == 1 and tower[0].year >= 1950 and tower[0].height >= 60, "the counterpoint, only when asked"
+    assert sum(s.get("role") == "medieval" for s in q["steps"]) == 1 and q["generated"]["roles"] == ["medieval",
+                                                                                                    "counterpoint"]
+    assert B.build_spec(dict(id=q["id"], **q["generated"]), city) == q
+    plain = B.build("churches-towers", None, 1, city, roles=[], route="none")
+    assert all("role" not in s for s in plain["steps"]), "--no-roles: the old behaviour"
+    try:
+        B.build("churches-towers", None, 1, city, roles=["baroque"])
+    except B.BuildError as e:
+        assert "medieval" in str(e)
+    else:
+        raise AssertionError("an unknown role must fail")
+    # a role with no candidates (no church within 300 m of here) is skipped, and the stops come from the rest
+    q = B.build("golden-age-canals", 4, 1, city, start="-100,-100", within=300, route="none")
+    assert len(q["steps"]) == 4 and "church" not in [s.get("role") for s in q["steps"]]
+
+
+def test_variety_across_seeds():
+    city, _ = fixture()
+    for name, _ in THEMES:
+        sets = [frozenset(s["bags"][0] for s in B.build(name, None, k, city, route="none")["steps"])
+                for k in range(1, 6)]
+        assert overlap(sets) <= 0.4, f"{name}: stops overlap {overlap(sets):.2f} across seeds 1–5"
+        kinds = {tuple(s["kind"] for s in B.build(name, None, k, city, route="none")["steps"]) for k in range(1, 6)}
+        assert len(kinds) > 1, f"{name}: the order of step kinds follows the seed"
+
+
+def test_no_far_outlier():
+    city, _ = fixture()
+    by = {b: r for r in city.df.itertuples() for b in r.bags}
+    for name in ("amsterdam-school", "golden-age-canals", "post-war-rebuild", "warehouses"):
+        for k in range(1, 6):
+            rs = [by[s["bags"][0]] for s in B.build(name, None, k, city, route="none")["steps"]]
+            xz = np.array([(r.x, r.z) for r in rs])
+            D = np.hypot(*(xz[:, None] - xz[None]).transpose(2, 0, 1)) + np.diag(np.full(len(rs), np.inf))
+            nn = np.sort(D.min(1))
+            assert nn[-1] <= max(250, 2 * nn[-2]), f"{name} {k}: a stop {nn[-1]:.0f} m from the rest"
+
+
+def test_height_choice_spread():
+    seen, ratios = set(), set()
+    for seed in range(60):
+        for h in (15, 22, 40, 85, 260):
+            opts = St.height_options(h, np.random.default_rng([seed, h]))
+            if opts is None:
+                continue
+            assert opts[0] == h and len(set(opts)) == 3 and min(opts) > 0
+            seen.add(sorted(opts).index(h))
+            ratios.add(tuple(round(x / h, 1) for x in opts[1:]))
+    assert seen == {0, 1, 2}, "the right height is lowest, middle or highest"
+    assert len(ratios) > 10, "the wrong heights spread by the seed"
+
+
+def test_start_point():
+    city, keys = fixture()
+    by = {b: r for r in city.df.itertuples() for b in r.bags}
+    w = by[keys["church_w"]]
+    found = False
+    for seed in range(1, 15):
+        q = B.build("churches-towers", None, seed, city, start=f"bag:{keys['church_w']}", route="none")
+        rs = [by[s["bags"][0]] for s in q["steps"]]
+        assert all(np.hypot(r.x - w.x, r.z - w.z) >= THEMES.get("churches-towers").gap for r in rs), \
+            "the start building is never a stop, nor anything within gap of it"
+        s = q["steps"][0]
+        if s["kind"] == "find":
+            found = True
+            assert s["hints"][0]["en"].endswith("of Westerkerk.") and s["hints"][0]["nl"].endswith("de Westerkerk.")
+            (d, _), (c, _) = St.direction((w.x, w.z), (rs[0].x, rs[0].z))
+            assert f"{d} {c} of" in s["hints"][0]["en"], "measured from the start, not the Dam"
+    assert found
+    r = candidates("churches-towers").iloc[0]
+    step = St.write_step("find", r, dict(xy=(r.x + 100, r.z), en="the start", nl="het startpunt"))
+    assert step["hints"][0]["en"] == "It is about 100 m west of the start."
+
+
+def test_zero_and_bad_arguments():
+    city, _ = fixture()
+    for kw, word in ((dict(stops=0), "--stops 0"), (dict(stops=1), "--stops 1"), (dict(within=0), "--within 0"),
+                     (dict(within=-5), "--within -5")):
+        try:
+            B.build("churches-towers", city=city, route="none", **kw)
+        except B.BuildError as e:
+            assert word in str(e), e
+        else:
+            raise AssertionError(f"{kw} must fail")
+
+
+def test_dutch_articles():
+    assert nl_name("Westerkerk") == "de Westerkerk" and nl_name("Scheepvaarthuis") == "het Scheepvaarthuis"
+    assert nl_name("Centraal Station", cap=True) == "Het Centraal Station"
+    assert nl_name("Noorderkerk (fixture)") == "de Noorderkerk (fixture)"
+    assert nl_name("De Bazel") == "De Bazel" and nl_name("Het Schip") == "Het Schip"
+    assert nl_name("Fixture block 3") == "Fixture block 3" and nl_name("Rijksmuseum") == "het Rijksmuseum"
+    city, _ = fixture()
+    q = B.build("churches-towers", None, 1, city, route="none")
+    texts = [s.get("riddle", s.get("ask"))["nl"] for s in q["steps"]]
+    assert any(" de " in t.lower() for t in texts if "kerk" in t.lower()), texts
 
 
 # ---------- ordering ----------
@@ -217,9 +350,12 @@ def test_steps_say_only_what_the_data_holds():
                     if s["ask"]["en"].startswith("Who designed"):
                         assert right in r.architects and all(o["en"] not in r.architects for o in s["options"][1:])
                         assert r.wiki_url in s["sources"]
-                    elif s["ask"]["en"].startswith("When was"):
+                    elif s["ask"]["en"].startswith("In which period"):
                         _, _, lo, hi, _ = PERIODS[r.period]
-                        assert r.exact and lo <= r.year <= hi
+                        assert r.exact and lo <= r.year <= hi and s["options"][0] == period_span(r.period)
+                        assert name != "amsterdam-school", "one period only: the theme gives it away"
+                    elif s["ask"]["en"].startswith("Which of these"):
+                        assert r.exact and s["options"][0]["en"] in s["reveal"]["en"].split(";")[0]
                     else:
                         assert right == f"About {round(r.height)} m" and SRC_BAG in s["sources"]
                 if s["kind"] == "find":
@@ -292,6 +428,13 @@ def end_to_end(root):
     q = json.loads(r.stdout)
     assert len(q["steps"]) == 3 and q["generated"]["within"] == 900
     assert run("--theme", "skyline", "--stops", "40").returncode == 1, "too many stops fails cleanly"
+    for bad in (("--stops", "0"), ("--within", "0")):
+        r = run("--theme", "skyline", *bad)
+        assert r.returncode == 1 and " ".join(bad) in r.stderr and "skyline: skyline" not in r.stderr, r.stderr
+    r = run("--theme", "churches-towers", "--seed", "2")
+    assert r.returncode == 0 and "role: medieval" in r.stdout, "the preview shows each stop's role"
+    r = run("--theme", "churches-towers", "--no-roles", "--json")
+    assert r.returncode == 0 and all("role" not in s for s in json.loads(r.stdout)["steps"])
 
     os.chdir(root)
     from pipeline.questgen.city import City

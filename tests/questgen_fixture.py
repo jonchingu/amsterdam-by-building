@@ -4,10 +4,11 @@ photos, facts and stories. Made up, like the city; nothing here is about the rea
     uv run python tests/questgen_fixture.py /tmp/ams-qg          # write it, then:
     uv run python -m pipeline.questgen --root /tmp/ams-qg --list-themes
 
-On top of the plain fixture: four churches and a synagogue with towers, and four modern towers, in empty courtyards;
-a 'canal ring' between the two strips of water with gabled and listed houses and warehouses along the northern one;
-Amsterdam School blocks south of the southern water; post-war houses with wall art and war damage; one in five
-houses with an estimated year. city() gives the same thing in memory, for tests that need no files.
+On top of the plain fixture: churches from 1306 to 2004 and a synagogue, post-war and new towers, and two Amsterdam
+School public buildings, in empty courtyards; a 'canal ring' between the two strips of water with gabled and listed
+houses, hofjes, and warehouses along the northern one; Amsterdam School blocks south of the southern water; post-war
+houses with wall art and war damage; one in five houses with an estimated year. city() gives the same thing in
+memory, for tests that need no files.
 """
 import sys
 from pathlib import Path
@@ -23,16 +24,40 @@ sys.path.insert(0, str(REPO / "tests"))
 import fixture_city as fc  # noqa: E402
 from pipeline.periods import period_index  # noqa: E402
 
-# key: name, [(cx, cz, w, d, height)], year, architect — each in a courtyard the plain fixture leaves empty
+# key: name, [(cx, cz, w, d, height)], year, architect, [(layer, group)] — each in a courtyard the plain fixture
+# leaves empty. Churches and towers span the eras, so that themes with era roles have more than one candidate per role.
+W, SYN, AS, LISTED = ("faith", "worship"), ("faith", "synagogue"), ("styles", "as"), ("heritage", "Rijksmonument")
 EXTRA = {
-    "church_n": ("Noorderkerk (fixture)", [(-280, -385, 22, 12, 20), (-268, -385, 6, 6, 55)], 1623, "Hendrick de Keyser"),
-    "church_e": ("Oosterkerk (fixture)", [(560, -55, 22, 12, 18), (572, -55, 6, 6, 48)], 1671, "Daniel Stalpaert"),
-    "church_s": ("Zuiderkapel (fixture)", [(140, 330, 22, 12, 16), (152, 330, 6, 6, 40)], 1928, "Jan Gratama"),
-    "synagogue": ("Synagogue (fixture)", [(420, 275, 24, 14, 22)], 1671, "Elias Bouman"),
-    "tower_a": ("Rivierentoren (fixture)", [(-700, 440, 14, 14, 90)], 1972, None),
-    "tower_b": ("Zuidastoren (fixture)", [(700, -495, 14, 14, 120)], 2005, None),
-    "tower_c": ("Oevertoren (fixture)", [(-560, 550, 14, 14, 75)], 1999, None),
-    "tower_d": ("Haventoren (fixture)", [(280, -550, 14, 14, 95)], 1985, None),
+    # churches, medieval to modern
+    "church_old": ("Oudekerk (fixture)", [(0, -220, 22, 12, 22), (12, -220, 6, 6, 67)], 1306, None, [W, LISTED]),
+    "church_new": ("Nieuwekerk (fixture)", [(70, -110, 22, 12, 24), (82, -110, 6, 6, 60)], 1408, None, [W, LISTED]),
+    "chapel_a": ("Agnietenkapel (fixture)", [(-140, 55, 20, 12, 18)], 1470, None, [W, LISTED]),
+    "church_n": ("Noorderkerk (fixture)", [(-280, -385, 22, 12, 20), (-268, -385, 6, 6, 55)], 1623,
+                 "Hendrick de Keyser", [W, LISTED]),
+    "church_e": ("Oosterkerk (fixture)", [(560, -55, 22, 12, 18), (572, -55, 6, 6, 48)], 1671, "Daniel Stalpaert",
+                 [W, LISTED]),
+    "synagogue": ("Synagogue (fixture)", [(420, 275, 24, 14, 22)], 1671, "Elias Bouman", [SYN, LISTED]),
+    "church_am": ("Amstelkerk (fixture)", [(210, 220, 20, 12, 20)], 1770, None, [W, LISTED]),
+    "church_mo": ("Mozeskerk (fixture)", [(350, 165, 22, 12, 22), (362, 165, 6, 6, 42)], 1841, None, [W]),
+    "church_ph": ("Posthoornkerk (fixture)", [(-490, 165, 22, 12, 24), (-478, 165, 6, 6, 58)], 1863,
+                  "Pierre Cuypers", [W]),
+    "church_kb": ("Krijtbergkerk (fixture)", [(-420, -55, 22, 12, 22), (-408, -55, 6, 6, 50)], 1883,
+                  "Alfred Tepe", [W]),
+    "church_s": ("Zuiderkapel (fixture)", [(140, 330, 22, 12, 16), (152, 330, 6, 6, 40)], 1928, "Jan Gratama",
+                 [W, AS]),
+    "church_el": ("Elandskerk (fixture)", [(-630, 330, 22, 12, 18), (-618, 330, 6, 6, 45)], 1962, None, [W]),
+    "church_kr": ("Kruiskerk (fixture)", [(630, 385, 20, 12, 25)], 2004, None, [W]),
+    # towers, post-war to now
+    "tower_a": ("Rivierentoren (fixture)", [(-700, 440, 14, 14, 90)], 1972, None, []),
+    "tower_w": ("Flatgebouw West (fixture)", [(-770, -165, 14, 14, 65)], 1968, None, []),
+    "tower_bj": ("Bijlmertoren (fixture)", [(490, 495, 14, 14, 70)], 1975, None, []),
+    "tower_b": ("Zuidastoren (fixture)", [(700, -495, 14, 14, 120)], 2005, None, [("arcam", "won")]),
+    "tower_c": ("Oevertoren (fixture)", [(-560, 550, 14, 14, 75)], 1999, None, []),
+    "tower_d": ("Haventoren (fixture)", [(280, -550, 14, 14, 95)], 1985, None, []),
+    "tower_ij": ("IJtoren (fixture)", [(-70, -495, 14, 14, 110)], 2012, None, [("arcam", "nominated")]),
+    # Amsterdam School public buildings
+    "as_school": ("Zuiderschool (fixture)", [(-350, 385, 24, 12, 16)], 1925, "Jan Frederik Staal", [AS]),
+    "as_post": ("Postkantoor Zuid (fixture)", [(210, 440, 24, 12, 18)], 1919, "Piet Kramer", [AS]),
 }
 AS_ARCHITECTS = ["Michel de Klerk", "Piet Kramer", "Jan Gratama", "Jan Frederik Staal"]
 WIKI = "https://nl.wikipedia.org/wiki/"
@@ -69,7 +94,7 @@ def add_extra(b, q):
     """The extra buildings as rows of b and q, shaped as fixture_city.city() makes them. → (b, q, {key: bag})."""
     rows, parts, keys = [], [], {}
     n = len(b)
-    for key, (_, ps, year, _) in EXTRA.items():
+    for key, (_, ps, year, _, _) in EXTRA.items():
         bag = f"{363100000000000 + n:016d}"
         n += 1
         ident = f"NL.IMBAG.Pand.{bag}"
@@ -109,17 +134,16 @@ def attributes(b, landmarks, extra):
     g["gables", "trap"] = golden & (y < 1630)
     g["gables", "hals"] = golden & y.between(1630, 1669)
     g["gables", "klok"] = golden & (y >= 1670)
-    north = house & z.between(-345, -255) & y.between(1600, 1800)
+    north = house & z.between(-345, -255) & y.between(1600, 1900)
     g["trade", "pakhuis"] = north
-    company = list(bag[north].iloc[[3, 17]]) if north.sum() > 17 else []
+    old_north = north & (y < 1700)
+    company = list(bag[old_north].iloc[[3, 17]]) if old_north.sum() > 17 else []
     g["trade", "company"] = bag.isin(company)
-    g["faith", "worship"] = bag.isin([landmarks["church_w"], landmarks["church_z"],
-                                      extra["church_n"], extra["church_e"], extra["church_s"]])
-    g["faith", "synagogue"] = bag == extra["synagogue"]
+    g["faith", "worship"] = bag.isin([landmarks["church_w"], landmarks["church_z"]])
+    g["faith", "hofje"] = golden & (idx % 29 == 3)
     south = house & (z > 260) & x.between(-650, 650)
     g["styles", "as"] = south & y.between(1914, 1940)
     g["architects", "as"] = south & y.between(1914, 1940) & (idx % 3 == 0)
-    g["styles", "as"] |= bag == extra["church_s"]
     g["housing", "woningwet"] = south & y.between(1901, 1940)
     g["planned", "Plan Zuid"] = house & (z > 260)
     g["planned", "Western garden cities"] = house & (x < -600)
@@ -130,10 +154,12 @@ def attributes(b, landmarks, extra):
     art = postwar & (idx % 4 == 0)
     g["wallart", "top"] = art & (idx % 8 == 0)
     g["wallart", "valuable"] = art & (idx % 8 == 4)
-    g["arcam", "won"] = bag == extra["tower_b"]
-    listed = (ring & (y < 1750)) | bag.isin([landmarks[k] for k in ("church_w", "church_z", "station", "museum")]) \
-        | bag.isin([extra[k] for k in ("church_n", "church_e", "synagogue")])
+    listed = (ring & (y < 1750)) | bag.isin([landmarks[k] for k in ("church_w", "church_z", "station", "museum")])
     g["heritage", "Rijksmonument"] = listed
+    for key, (*_, groups) in EXTRA.items():
+        for lg in groups:
+            g[lg] = g.get(lg, pd.Series(False, index=b.index)) | (bag == extra[key])
+    listed = g["heritage", "Rijksmonument"]
     b["monument"] = np.where(listed & (idx % 2 == 0), (100000 + idx).astype(str), None)
 
     catalogue, mask, bit = [], np.zeros(len(b), dtype=np.uint64), 0
@@ -168,8 +194,8 @@ def attributes(b, landmarks, extra):
     for key, bg in landmarks.items():
         item([bg], fc.LANDMARKS[key][0], photo=key != "tiny")
     for key, bg in extra.items():
-        name, _, _, arch = EXTRA[key]
-        item([bg], name, [arch] if arch else [], ["Amsterdamse school"] if key == "church_s" else [])
+        name, _, _, arch, groups = EXTRA[key]
+        item([bg], name, [arch] if arch else [], ["Amsterdamse school"] if AS in groups else [])
     as_houses = bag[g["styles", "as"] & house].tolist()
     for j in range(0, min(len(as_houses), 24), 3):
         group = as_houses[j:j + (2 if j == 0 else 1)]
@@ -177,6 +203,8 @@ def attributes(b, landmarks, extra):
     old = bag[golden].tolist()
     for j in range(0, min(len(old), 40), 5):
         item([old[j]], f"Fixture house {j // 5 + 1}", photo=j % 10 == 0)
+    for j, bg in enumerate(bag[g["faith", "hofje"]].tolist()[:4]):
+        item([bg], f"Fixture hofje {j + 1}", photo=j % 2 == 0)
     for j, bg in enumerate(company):
         item([bg], ["Fixture East India House", "Fixture West India House"][j])
     src = WIKI + "Fixture"
