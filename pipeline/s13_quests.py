@@ -2,17 +2,44 @@
 
 A step is dropped, and its quest with it, when: an article lacks a checked string; a story or address is not found;
 a year step's year is not the map's year for the building (within one year); a photo clue has no photo.
+
+Every quest then gets its flyover route (quest_routes.py): anchors the app flies through the quest's buildings. A
+route leg that still passes through a building after the planner's fixes fails the build.
+`python -m pipeline.s13_quests --routes-only` re-plans the routes of an existing quests.json without the checks.
 """
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
 
+from .quest_routes import load_heights, plan
 from .quests import QUESTS
-from .s08_curated import article, geocode, wikidata_bags
+
+
+OUT = Path("web/data/quests.json")
+
+
+def add_routes(quests):
+    """A flyover route per quest, planned on the buildings' heights. Raises when a leg can't be cleared."""
+    H = load_heights()
+    for q in quests:
+        try:
+            q["route"] = plan([s["bags"] for s in q["steps"]], H)
+        except (RuntimeError, ValueError) as e:
+            raise SystemExit(f"{q['id']}: route: {e}")
+        legs = len(q["route"]) - 1
+        print(f'{q["id"]:10s} route: {len(q["route"])} anchors, {legs} legs clear')
 
 
 def main():
+    if "--routes-only" in sys.argv:
+        quests = json.loads(OUT.read_text())
+        add_routes(quests)
+        OUT.write_text(json.dumps(quests, ensure_ascii=False, separators=(",", ":")))
+        return
+    from .s08_curated import article, geocode, wikidata_bags
+
     b = pd.read_parquet("data/buildings.parquet", columns=["identificatie", "year", "date_flag", "height"])
     b["bag"] = b.identificatie.str.slice(-16)
     by = b.set_index("bag")
@@ -74,7 +101,8 @@ def main():
         print(f'{q["id"]:10s} level {q["level"]}  {len(steps)}/{len(q["steps"])}')
     for p in problems:
         print("problem:", p)
-    Path("web/data/quests.json").write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+    add_routes(out)
+    OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
     print(len(out), "quests")
 
 

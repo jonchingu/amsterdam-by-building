@@ -50,6 +50,9 @@ const NL_UI = {
   'Start': 'Begin',
   'Continue': 'Verder',
   'Play again': 'Opnieuw',
+  'Fly the route': 'Vlieg de route',
+  'Stop the flight': 'Stop de vlucht',
+  'Stop': 'Halte',
   
   'Find buildings from riddles and old photos, guess their age with the colours switched off. Every answer is worth three crosses; hints and wrong answers cost one.': 'Vind gebouwen aan de hand van raadsels en oude foto’s, raad hun leeftijd met de kleuren uit. Elk antwoord is drie kruisjes waard; hints en foute antwoorden kosten er een.',
   'Your crosses': 'Je kruisjes',
@@ -770,20 +773,178 @@ function gidOf(bag) {
   return bagIndex.get(bag) ?? -1;
 }
 let flight = null;
+const FOV0 = camera.fov;
 function flyTo(x, z, done, distance = 520) {
+  stopTour();
   const dir = camera.position.clone().sub(controls.target).normalize();
   if (dir.y < 0.45) { dir.y = 0.45; dir.normalize(); }
   const target = new THREE.Vector3(x, 0, z);
   flight = { t0: performance.now(), dur: 1400, fromT: controls.target.clone(), toT: target,
-    fromP: camera.position.clone(), toP: target.clone().add(dir.multiplyScalar(distance)), done };
+    fromP: camera.position.clone(), toP: target.clone().add(dir.multiplyScalar(distance)), fromF: camera.fov, done };
+}
+// A flyover may leave the lens closed in; this opens it again where the camera is.
+function restoreLens() {
+  if (Math.abs(camera.fov - FOV0) < 0.01) return;
+  flight = { t0: performance.now(), dur: 900, fromT: controls.target.clone(), toT: controls.target.clone(),
+    fromP: camera.position.clone(), toP: camera.position.clone(), fromF: camera.fov, done: null };
 }
 function stepFlight(now) {
   if (!flight) return;
   const k = Math.min(1, (now - flight.t0) / flight.dur), e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
   controls.target.lerpVectors(flight.fromT, flight.toT, e);
   camera.position.lerpVectors(flight.fromP, flight.toP, e);
+  if (flight.fromF !== FOV0) { camera.fov = flight.fromF + (FOV0 - flight.fromF) * e; camera.updateProjectionMatrix(); }
   if (k >= 1) { const d = flight.done; flight = null; d?.(); }
 }
+
+// ---------- Quest flyovers ----------
+// Every quest carries a planned route (pipeline/quest_routes.py, checked there against the buildings' heights):
+// anchors {p: [x, y, z], yaw, pitch, zoom, hold, speed, target?, step?} in local metres, y above the street. The camera
+// flies a centripetal Catmull-Rom curve through them; each leg is timed with a cubic Hermite ease, resting `hold`
+// seconds at an anchor and cruising at `speed` m/s between. Zoom is the lens: the field of view narrows, the camera
+// stays where it is. An anchor with a target keeps it in the middle of the frame. Any drag, wheel or key hands the
+// camera back at once. With reduced motion on, the camera cuts from stop to stop instead of gliding.
+// The engine follows the drone route page for Toranomon (docs/ref/tokyo-drone-route.html on its own branch).
+const RAD = Math.PI / 180;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const lensFov = z => 2 * Math.atan(Math.tan(FOV0 / 2 * RAD) / z) / RAD;
+const lookAngles = (from, to) => {
+  const d = to.clone().sub(from);
+  return { yaw: (Math.atan2(d.x, -d.z) / RAD + 360) % 360, pitch: Math.atan2(d.y, Math.hypot(d.x, d.z)) / RAD };
+};
+const routes = new WeakMap();
+function routeOf(q) {
+  if (!q?.route || q.route.length < 2) return null;
+  if (!routes.has(q)) routes.set(q, buildRoute(q.route));
+  return routes.get(q);
+}
+// The built route: curve, per-anchor framing, per-leg timing and arc-length tables.
+function buildRoute(A) {
+  const n = A.length, pts = A.map(a => new THREE.Vector3(...a.p));
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+  const yaw = [], pitch = [], lz = [];
+  A.forEach((a, i) => {
+    let { yaw: y, pitch: p } = a.target ? lookAngles(pts[i], new THREE.Vector3(...a.target)) : a;
+    if (i) { while (y - yaw[i - 1] > 180) y -= 360; while (y - yaw[i - 1] < -180) y += 360; }
+    yaw.push(y); pitch.push(p); lz.push(Math.log(a.zoom || 1));
+  });
+  // Speed through each anchor: zero at the ends and at holds, otherwise the mean of the two legs' cruise speeds.
+  const v = A.map((a, i) => (i === 0 || i === n - 1 || a.hold > 0) ? 0
+    : Math.min((A[i - 1].speed + a.speed) / 2, 2.9 * Math.min(A[i - 1].speed, a.speed)));
+  const legs = [];
+  for (let i = 0; i < n - 1; i++) {
+    const N = 160, tbl = new Float32Array(N + 1);
+    let prev = curve.getPoint(i / (n - 1)), L = 0;
+    for (let k = 1; k <= N; k++) { const q = curve.getPoint((i + k / N) / (n - 1)); L += q.distanceTo(prev); tbl[k] = L; prev = q; }
+    const T = Math.max(0.6, L / Math.max(1, A[i].speed));
+    legs.push({ L, T, tbl, al: Math.min(2.9, v[i] * T / Math.max(L, 1e-3)), be: Math.min(2.9, v[i + 1] * T / Math.max(L, 1e-3)) });
+  }
+  const arrive = [], depart = [];
+  let t = 0;
+  for (let i = 0; i < n; i++) { arrive.push(t); t += A[i].hold || 0; depart.push(t); if (i < n - 1) t += legs[i].T; }
+  return { A, n, curve, pts, yaw, pitch, lz, legs, arrive, depart, total: t };
+}
+const cr = (p0, p1, p2, p3, f) => 0.5 * (2 * p1 + (-p0 + p2) * f + (2 * p0 - 5 * p1 + 4 * p2 - p3) * f * f + (-p0 + 3 * p1 - 3 * p2 + p3) * f * f * f);
+// The camera's pose at route time t (seconds): position, heading, tilt, lens, and the anchor it is nearest.
+function sampleRoute(R, t) {
+  const { n, legs, depart, arrive, pts, yaw, pitch, lz, curve, A } = R;
+  t = Math.max(0, Math.min(R.total, t));
+  let i = 0;
+  while (i < n - 1 && t > depart[i] && t >= arrive[i + 1]) i++;
+  if (i === n - 1 || t <= depart[i]) return { pos: pts[i].clone(), yaw: yaw[i], pitch: pitch[i], zoom: Math.exp(lz[i]), at: i };
+  const g = legs[i], u = (t - depart[i]) / g.T;
+  const H = (u * u * u - 2 * u * u + u) * g.al + (-2 * u * u * u + 3 * u * u) + (u * u * u - u * u) * g.be; // cubic Hermite: 0→1, slopes al, be
+  const s = Math.max(0, Math.min(1, H)) * g.L;
+  let lo = 0, hi = g.tbl.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (g.tbl[m] < s) lo = m; else hi = m; }
+  const w = (lo + (g.tbl[hi] > g.tbl[lo] ? (s - g.tbl[lo]) / (g.tbl[hi] - g.tbl[lo]) : 0)) / (g.tbl.length - 1);
+  const pos = curve.getPoint((i + w) / (n - 1));
+  const f = g.L > 0 ? s / g.L : u, I = k => Math.max(0, Math.min(n - 1, k));
+  let y = cr(yaw[I(i - 1)], yaw[i], yaw[i + 1], yaw[I(i + 2)], f), p = cr(pitch[I(i - 1)], pitch[i], pitch[i + 1], pitch[I(i + 2)], f);
+  const ta = A[i].target, tb = A[i + 1].target;
+  if (ta && tb && Math.hypot(ta[0] - tb[0], ta[1] - tb[1], ta[2] - tb[2]) < 1) {   // two anchors on one target: keep it centred
+    ({ yaw: y, pitch: p } = lookAngles(pos, new THREE.Vector3(...ta)));
+  }
+  const zoom = Math.max(1, Math.exp(cr(lz[I(i - 1)], lz[i], lz[i + 1], lz[I(i + 2)], f)));
+  return { pos, yaw: (y % 360 + 360) % 360, pitch: Math.max(-89, Math.min(60, p)), zoom, at: f < 0.5 ? i : i + 1 };
+}
+// The pose the camera has now, in the route's terms.
+function cameraPose() {
+  const { yaw, pitch } = lookAngles(camera.position, controls.target);
+  return { pos: camera.position.clone(), yaw, pitch, zoom: Math.tan(FOV0 / 2 * RAD) / Math.tan(camera.fov / 2 * RAD) };
+}
+// Puts the camera at a pose. The map controls orbit the ground point it looks at, so they can take over from here.
+// On a phone the quest card covers the top half: the camera tilts up a little so the building sits lower.
+function applyPose(s) {
+  const pitch = Math.min(-6, s.pitch + (phone.matches && quest ? 8 : 0)), y = s.yaw * RAD, p = pitch * RAD;
+  const dir = new THREE.Vector3(Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p));
+  const reach = Math.min(4000, Math.max(controls.minDistance + 1, s.pos.y / -dir.y));
+  camera.position.copy(s.pos);
+  controls.target.copy(s.pos).addScaledVector(dir, reach);
+  camera.lookAt(controls.target);
+  const f = lensFov(s.zoom);
+  if (Math.abs(camera.fov - f) > 1e-3) { camera.fov = f; camera.updateProjectionMatrix(); }
+}
+// Playback of the route from time `from` to `to`. Playback starts from wherever the camera is and blends onto the
+// moving route over 0.7 to 2.5 s. With reduced motion a segment (one step's leg) cuts straight to its end, and a tour
+// cuts from stop to stop (the opening view, each step, the closing view), resting on each for its hold plus 1.5 s.
+let tour = null;
+function playRoute(R, from, to, { kind = 'segment', onStop = null, done = null } = {}) {
+  stopTour();
+  flight = null;
+  // The map controls keep momentum from the last drag; drop it so nothing drifts once they take over again.
+  controls._sphericalDelta?.set(0, 0, 0); controls._panOffset?.set(0, 0, 0); controls._scale = 1;
+  const cut = reduceMotion.matches;
+  if (cut && kind === 'segment') { applyPose(sampleRoute(R, to)); done?.(true); return; }
+  const start = sampleRoute(R, from);
+  const cuts = R.A.map((a, i) => i).filter(i => i === 0 || i === R.n - 1 || R.A[i].step !== undefined);
+  tour = { R, t: from, end: to, kind, cut, cuts, next: 0, onStop, done, stop: -1, at: -1,
+    blend: cut ? null : { from: cameraPose(), t0: performance.now(), ms: Math.max(700, Math.min(2500, 700 + start.pos.distanceTo(camera.position) * 2)) } };
+}
+// Stops playback and leaves the camera where it is: the visitor has it now.
+function stopTour() {
+  if (!tour) return;
+  const d = tour.done;
+  tour = null;
+  d?.(false);
+}
+function stepTour(now, dt) {
+  const T = tour, R = T.R;
+  let s = null;
+  if (T.cut) {
+    T.t += dt;
+    if (T.t >= T.next) {
+      const i = T.cuts[++T.at];
+      T.next = T.t + (R.A[i].hold || 0) + 1.5;
+      s = { pos: R.pts[i].clone(), yaw: R.yaw[i], pitch: R.pitch[i], zoom: Math.exp(R.lz[i]), at: i };
+    }
+  } else {
+    T.t = Math.min(T.end, T.t + dt);
+    s = sampleRoute(R, T.t);
+    if (T.blend) {
+      const b = T.blend, k = Math.min(1, (now - b.t0) / b.ms), e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      s = { pos: b.from.pos.clone().lerp(s.pos, e), yaw: b.from.yaw + (((s.yaw - b.from.yaw + 540) % 360) - 180) * e,
+        pitch: b.from.pitch + (s.pitch - b.from.pitch) * e, zoom: Math.exp(Math.log(b.from.zoom) + (Math.log(s.zoom) - Math.log(b.from.zoom)) * e), at: s.at };
+      if (k >= 1) T.blend = null;
+    }
+  }
+  if (s) {
+    applyPose(s);
+    const st = R.A[s.at]?.step;
+    if (st !== undefined && st !== T.stop) { T.stop = st; T.onStop?.(st); }
+  }
+  // The tour ends on reaching its end, or with reduced motion on showing the closing view.
+  if (T.cut ? T.at === T.cuts.length - 1 : T.t >= T.end && !T.blend) { tour = null; T.done?.(true); }
+}
+// Any drag, pinch or wheel on the map (the controls announce it) or any key hands the camera back. Not counted: typing
+// in a form field, modifier keys, and Tab, Enter or Space on a button or link, so the keyboard can still reach and
+// press 'Stop the flight'.
+controls.addEventListener('start', stopTour);
+addEventListener('keydown', e => {
+  if (!tour || ['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key) || e.target.closest?.('input, textarea, select')) return;
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('button, a')) return;
+  stopTour();
+});
 
 // ---------- Quests ----------
 // Short walks through the city as riddles (pipeline/quests.py, checked by s13_quests): find a building on the map,
@@ -817,6 +978,7 @@ function renderQuestList() {
       ${levelMark(q.level)}
       <h3>${esc(L10(q.title))}</h3><p>${esc(L10(q.intro))}</p>
       <footer><span class="q-progress">${complete ? `${t('Best')}: ${fmtN(st.best)}` : done ? `${done} / ${n}` : `${n} ${t('steps')}`}</span>
+        ${complete && q.route ? `<button class="q-fly" data-q="${q.id}">${t('Fly the route')}</button>` : ''}
         <button class="q-start" data-q="${q.id}">${complete ? t('Play again') : done ? t('Continue') : t('Start')}</button></footer></li>`;
   };
   document.getElementById('quests-body').innerHTML = `
@@ -830,6 +992,11 @@ function renderQuestList() {
     const resume = st.step > 0 && st.step < q.steps.length;
     rival = null;
     startQuest(q, resume ? st.step : 0, resume ? st.score || 0 : 0, resume ? st.marks || [] : []);
+  });
+  // Only a finished quest offers its tour: the route passes every answer.
+  questsDlg.querySelectorAll('.q-fly').forEach(b => b.onclick = () => {
+    questsDlg.close();
+    showTour(quests.find(q => q.id === b.dataset.q));
   });
 }
 function openQuests() { renderQuestList(); questsDlg.showModal(); }
@@ -913,6 +1080,7 @@ function setQuiz(gid, blind) {
 const cardsLocked = () => quest && !solved && (quizGid >= 0 || qStep().kind === 'where');
 
 function startQuest(q, n, sc = 0, mk = []) {
+  stopTour();
   quest = q; step = n; score = sc; marks = mk;
   document.body.classList.add('questing');
   pinCard(-1);
@@ -935,9 +1103,61 @@ function enterStep(first) {
   } else if (gids.length) {
     const b = building(gids[0]);
     setQuiz(gids[0], s.kind === 'year');
-    questFly(b.x, b.z, s.kind === 'year' ? 300 : 380);
+    if (!flyStep(step)) questFly(b.x, b.z, s.kind === 'year' ? 300 : 380);
   }
   renderQuest();
+}
+// One step's leg of the route: from the last step's building (or the opening view) to this step's. Only a year or a
+// choice step flies its leg on arrival, as those show their building anyway; a find or "where" step never flies to
+// its answer before it is solved.
+function flyStep(k) {
+  const R = routeOf(quest), kind = quest.steps[k]?.kind;
+  if (!R || (kind !== 'year' && kind !== 'choice')) return false;
+  const i = R.A.findIndex(a => a.step === k), j = R.A.findIndex(a => a.step === k - 1);
+  if (i < 0) return false;
+  playRoute(R, j >= 0 ? R.depart[j] : R.depart[0], R.arrive[i]);
+  return true;
+}
+// A finished quest's whole route as a tour. Each step's building turns red as the camera reaches it; the card names it.
+function flyRoute() {
+  const R = routeOf(quest);
+  if (!R) return;
+  if (tour?.kind === 'tour') { stopTour(); return; }
+  ring.visible = false; pins.visible = false; marker.visible = false;
+  setQuiz(-1, false);
+  playRoute(R, 0, R.total, { kind: 'tour', onStop: tourStop, done: syncFly });
+  syncFly();
+}
+function tourStop(k) {
+  const g = stepGids(quest.steps[k])[0];
+  if (g !== undefined) { uniforms.uSelected.value = g; uniforms.uBlind.value = 2; }
+  const now = questEl.querySelector('.q-now');
+  if (!now) return;
+  const b = g !== undefined ? building(g) : null, name = b && b.wk >= 0 ? tr(wiki[b.wk], 'label') : '';
+  now.hidden = false;
+  now.innerHTML = `<b>${t('Stop')} ${k + 1} / ${quest.steps.length}</b>${name ? ` ${esc(name)}` : ''}`;
+}
+function syncFly() {
+  const b = questEl.querySelector('.q-fly');
+  if (b) b.textContent = t(tour?.kind === 'tour' ? 'Stop the flight' : 'Fly the route');
+}
+// The tour of a finished quest, opened from the list of quests.
+function showTour(q) {
+  stopTour();
+  quest = q; step = q.steps.length - 1; solved = true; rival = null;
+  document.body.classList.add('questing');
+  pinCard(-1);
+  questEl.className = 'quest done';
+  questEl.innerHTML = `
+    <button class="q-close" aria-label="${t('Close')}">×</button>
+    <header><b>${esc(L10(q.title))}</b>${levelMark(q.level)}</header>
+    <p class="q-now" hidden></p>
+    <div class="q-actions"><button class="primary q-fly">${t('Fly the route')}</button><button class="q-list">${t('More quests')}</button></div>`;
+  questEl.hidden = false;
+  questEl.querySelector('.q-close').onclick = closeQuest;
+  questEl.querySelector('.q-list').onclick = () => { closeQuest(); openQuests(); };
+  questEl.querySelector('.q-fly').onclick = flyRoute;
+  flyRoute();
 }
 // On a phone the quest sits over the top half of the map: aim past the building so it lands in the lower half.
 function questFly(x, z, dist, done = null) {
@@ -948,6 +1168,8 @@ function questFly(x, z, dist, done = null) {
   flyTo(x, z, done, dist);
 }
 function closeQuest() {
+  stopTour();
+  restoreLens();
   document.body.classList.remove('questing');
   quest = null; questEl.hidden = true; ring.visible = false; pins.visible = false; marker.visible = false; setQuiz(-1, false);
 }
@@ -1096,13 +1318,15 @@ function finished() {
     <header><b>${esc(L10(quest.title))}</b>${levelMark(quest.level)}</header>
     <div class="q-result"><p class="q-total"><b>${fmtN(score)}</b> / ${fmtN(max)}</p><p class="q-verdict">${t(verdict)}</p>${vs}
       <div class="q-bars" aria-hidden="true">${marks.map(m => `<i style="height:${Math.max(4, m)}%" class="${m === 100 ? 'full' : ''}"></i>`).join('')}</div></div>
-    <div class="q-actions"><button class="primary q-share">${t('Challenge a friend')}</button><button class="q-list">${t('More quests')}</button></div>
+    <p class="q-now" hidden></p>
+    <div class="q-actions"><button class="primary q-share">${t('Challenge a friend')}</button>${routeOf(quest) ? `<button class="q-fly">${t('Fly the route')}</button>` : ''}<button class="q-list">${t('More quests')}</button></div>
     <p class="q-shared" hidden></p>`;
   questEl.hidden = false;
   ring.visible = false; pins.visible = false; marker.visible = false; setQuiz(-1, false);
   rival = null;
   questEl.querySelector('.q-close').onclick = closeQuest;
   questEl.querySelector('.q-list').onclick = () => { closeQuest(); openQuests(); };
+  questEl.querySelector('.q-fly')?.addEventListener('click', flyRoute);
   questEl.querySelector('.q-share').onclick = async e => {
     const note = questEl.querySelector('.q-shared');
     if (navigator.share && phone.matches) { try { await navigator.share({ title: 'LAYRS: Amsterdam', text, url }); return; } catch {} }
@@ -1456,13 +1680,17 @@ renderPanel();
 resize();
 document.fonts?.ready.then(drawHist);
 
-let frame = 0;
+let frame = 0, lastNow = 0;
 renderer.setAnimationLoop(now => {
   frame++;
+  const dt = Math.min(0.1, (now - (lastNow || now)) / 1000);
+  lastNow = now;
   stepFlight(now);
   uniforms.uNow.value = now / 1000;
   uniforms.uMask.value = maskTarget;
-  controls.update();
+  // A flyover places the camera itself; otherwise the map controls do.
+  if (tour) stepTour(now, dt);
+  else controls.update();
   const dist = camera.position.distanceTo(controls.target);
   uniforms.uFog.value.set(dist * 1.6, dist * 4);
   if (frame % 6 === 0) updateLabels(dist);
@@ -1483,4 +1711,6 @@ renderer.setAnimationLoop(now => {
 });
 
 
-window.__dbg = { pick, uniforms, camera, controls, setLayer, layers, pinCard, showCard, building, labelGroup, labels, flyTo, startPlay, gidOf, questClick, startQuest, get quests() { return quests; } };
+window.__dbg = { pick, uniforms, camera, controls, setLayer, layers, pinCard, showCard, building, labelGroup, labels, flyTo, startPlay, gidOf, questClick, startQuest, get quests() { return quests; },
+  routeOf, sampleRoute, showTour, flyRoute, stopTour, get tour() { return tour && { kind: tour.kind, t: tour.t, end: tour.end, cut: tour.cut, stop: tour.stop }; },
+  get quest() { return quest && { id: quest.id, step, solved }; } };

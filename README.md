@@ -29,7 +29,7 @@ open data ──► pipeline/ (Python) ──► web/data/ (binary tiles + JSON)
 | `s09_residents` | Finds addresses of well-known residents in Dutch Wikipedia |
 | `s10_commons` | Finds more building photos on Commons by address in the file name |
 | `s11_facts` | Checks the 'Did you know' facts against Wikipedia |
-| `s13_quests` | Resolves the quests (`quests.py`) to buildings and checks every claim |
+| `s13_quests` | Resolves the quests (`quests.py`) to buildings and checks every claim; plans each quest's flyover route (`quest_routes.py`) clear of every roof and wall |
 | `s12_archive` | Up to six archive photos per building from the Stadsarchief beeldbank, via the Amsterdam Time Machine knowledge graph |
 
 ## Run it
@@ -42,6 +42,15 @@ python3 -m http.server 8642 --directory web
 ```
 
 Raw downloads (`data/`) and generated output (`web/data/`) are not in the repository: they are large and rebuilt by the pipeline.
+
+Without the raw data, a small made-up city stands in for testing the quest flyovers:
+
+```bash
+uv run python tests/test_quest_routes.py                 # the route planner
+uv run python tests/fixture_city.py /tmp/ams-fixture     # tiles, quests and routes for a made-up city
+python3 -m http.server 8642 --directory /tmp/ams-fixture/web &
+node tests/flyover_check.mjs http://localhost:8642       # headless: flights, hand-back, reduced motion (needs Playwright)
+```
 
 ## Data decisions
 
