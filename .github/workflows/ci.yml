@@ -1,0 +1,60 @@
+name: CI
+
+# Syntax and lint checks (scripts/ci/checks.sh) and the Python test suites (tests/test_*.py, each run on its own),
+# on every pull request, whatever its base, and on pushes to main. The suites run on the made-up fixture city, so
+# they need no downloaded data.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Syntax and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v6
+      - run: scripts/ci/checks.sh
+
+  tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Run each test suite
+        run: |
+          shopt -s nullglob
+          suites=(tests/test_*.py)
+          if [ ${#suites[@]} -eq 0 ]; then
+            echo "No test suites on this branch."
+            exit 0
+          fi
+          failed=()
+          for t in "${suites[@]}"; do
+            echo "::group::$t"
+            uv run python "$t" || failed+=("$t")
+            echo "::endgroup::"
+          done
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "::error::Failed: ${failed[*]}"
+            exit 1
+          fi
+          echo "All ${#suites[@]} suites passed."

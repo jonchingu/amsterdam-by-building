@@ -50,3 +50,12 @@ uv run python -m pipeline.s05_layers    # counts per group, missing translations
 uv run python -m pipeline.s03_tiles
 python3 -m http.server 8642 --directory web
 ```
+
+## Before you open a pull request
+
+CI runs these on every pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)); run them first:
+
+```bash
+scripts/ci/checks.sh                           # Python, JS, inline <script>, JSON, YAML and shell all parse; no undefined names
+for t in tests/test_*.py; do uv run python "$t"; done   # the test suites, on the made-up fixture city
+```
