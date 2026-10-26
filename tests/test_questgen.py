@@ -16,6 +16,7 @@ from functools import cache
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -28,7 +29,8 @@ from pipeline.questgen.order import length, loop, walk  # noqa: E402
 from pipeline.questgen.registry import ORDERS, PLANNERS, SELECTORS, SOURCES, THEMES, WRITERS, Registry  # noqa: E402
 from pipeline.questgen.select import SelectionError, notability, top_k  # noqa: E402
 from pipeline.questgen import steps as St  # noqa: E402
-from pipeline.questgen.steps import SRC_BAG, nl_name, period_span  # noqa: E402
+from pipeline.questgen.steps import (ERA_YEARS, SRC_BAG, architect_years, nl_name, period_span,  # noqa: E402
+                                     same_era)
 from pipeline.questgen.themes import Group, Has, Monument, Near, Taller, Text, Years  # noqa: E402
 from pipeline.s13_quests import check_quest, check_step  # noqa: E402
 
@@ -238,6 +240,45 @@ def test_height_choice_spread():
     assert len(ratios) > 10, "the wrong heights spread by the seed"
 
 
+def test_named_stops():
+    city, _ = fixture()
+    by = {b: r for r in city.df.itertuples() for b in r.bags}
+    for name, th in THEMES:
+        for k in range(1, 6):
+            rs = [by[s["bags"][0]] for s in B.build(name, None, k, city, route="none")["steps"]]
+            named = sum(isinstance(r.name_en, str) for r in rs)
+            assert named >= math.ceil(len(rs) / 2), f"{name} {k}: {named} of {len(rs)} stops named"
+    th = THEMES.get("golden-age-canals")
+    c = candidates(th.id)
+    sel = SELECTORS.get("balanced")
+    for k in range(1, 6):
+        assert sel(c, 4, th, rng(k), min_named=1.0).name_en.notna().all(), "every stop named, when asked"
+    assert sel(c, 6, th, rng(1), min_named=0.0).name_en.notna().sum() < 6, "no rule: unnamed stops too"
+    # fewer named candidates than the rule asks for: as many as there are, and no failure
+    one = pd.concat([c[c.name_en.notna()].head(1), c[c.name_en.isna()]])
+    assert sel(one, 6, th, rng(1)).name_en.notna().sum() == 1
+    assert len(sel(c[c.name_en.isna()], 6, th, rng(1))) == 6
+
+
+def test_architect_options_share_an_era():
+    years = {"Hendrick de Keyser": [1623], "Michel de Klerk": [1916, 1940], "Piet Kramer": [1916, 1934],
+             "Jan Gratama": [1922, 1928], "Pierre Cuypers": [1863], "Alfred Tepe": [1883]}
+    assert same_era(years, 1930, exclude=["Michel de Klerk"]) == ["Jan Gratama", "Piet Kramer", "Alfred Tepe"]
+    assert same_era(years, 1623, exclude=["Hendrick de Keyser"]) == [], "no one else of its era"
+    assert "Hendrick de Keyser" not in same_era(years, 1930), "never de Keyser for a 1930 block"
+    city, _ = fixture()
+    asked = 0
+    for name, _ in THEMES:
+        for k in range(1, 6):
+            for s in B.build(name, None, k, city, route="none")["steps"]:
+                if s["kind"] == "choice" and s["ask"]["en"].startswith("Who designed"):
+                    asked += 1
+                    r = next(x for x in city.df.itertuples() if s["bags"][0] in x.bags)
+                    ok = set(same_era(architect_years(city.df), r.year, exclude=r.architects))
+                    assert {o["en"] for o in s["options"][1:]} <= ok, (r.year, s["options"])
+    assert asked, "the architect question still comes up"
+
+
 def test_start_point():
     city, keys = fixture()
     by = {b: r for r in city.df.itertuples() for b in r.bags}
@@ -349,6 +390,9 @@ def test_steps_say_only_what_the_data_holds():
                     right = s["options"][0]["en"]
                     if s["ask"]["en"].startswith("Who designed"):
                         assert right in r.architects and all(o["en"] not in r.architects for o in s["options"][1:])
+                        years = architect_years(city.df)
+                        assert all(min(abs(y - r.year) for y in years[o["en"]]) <= ERA_YEARS
+                                   for o in s["options"][1:]), f"an architect from another era: {s['options']}"
                         assert r.wiki_url in s["sources"]
                     elif s["ask"]["en"].startswith("In which period"):
                         _, _, lo, hi, _ = PERIODS[r.period]

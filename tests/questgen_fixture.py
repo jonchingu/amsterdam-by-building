@@ -207,6 +207,15 @@ def attributes(b, landmarks, extra):
         item([bg], f"Fixture hofje {j + 1}", photo=j % 2 == 0)
     for j, bg in enumerate(company):
         item([bg], ["Fixture East India House", "Fixture West India House"][j])
+    # named post-war buildings and warehouses, scattered over each theme's pool (a fixed draw), so the named-stop
+    # rule has a choice everywhere; half without a photo, as many Wikidata items are
+    scatter = np.random.default_rng(7)
+    pw = bag[postwar & (g["war", "bomb"] | g["war", "damage"] | g["noord1943", "rebuilt"] | art
+                        | g["planned", "Western garden cities"])].tolist()
+    ware = [x_ for x_ in bag[g["trade", "pakhuis"]].tolist() if x_ not in index]
+    for label, pool_, n_ in (("Fixture rebuilt block", pw, 16), ("Fixture warehouse", ware, 12)):
+        for j, i in enumerate(sorted(scatter.choice(len(pool_), min(n_, len(pool_)), replace=False))):
+            item([pool_[i]], f"{label} {j + 1}", photo=j % 2 == 0)
     src = WIKI + "Fixture"
     facts[landmarks["church_w"]] = dict(en="A made-up fact: its tower is the tallest in the fixture city's west.",
                                         nl="Een verzonnen feit: de toren is de hoogste in het westen van de teststad.",

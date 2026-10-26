@@ -10,17 +10,25 @@ left is skipped and its slot goes to the theme's whole pool, which fills whateve
 (period, layer groups, architect) and for lying far from it, and must keep `gap` metres from every stop (and from the
 start), stay within 2 × radius of all of them, and lie no further from its nearest stop than the cap: twice the
 longest hop so far (at least 250 m, or 4 × gap), so no far-off stop is tacked onto a tight cluster. Only when no
-candidate meets the cap is it dropped for that slot, and then the selector tries again (up to 8 seeded attempts) for a
+candidate meets the cap is it dropped for that slot, and then the selector tries again (up to 16 seeded attempts) for a
 set that never needs to.
 
 The seed varies the quest by sampling, not by noise on the scores: each slot takes one of the k best candidates (k=4
 by default, and only those within `margin`=0.25 of the best), uniformly, by the seed. Same seed, same data: same quest.
+
+At least `min_named` of the stops (half by default, rounded up) are named buildings, as many as the candidates hold:
+a named landmark makes a better stop than 'this house'. The rule only steps in when the slots left would otherwise
+fall short, and then each slot takes a named candidate if one fits, else any. Of the attempts, the first that keeps
+both the leg cap and the names wins, else the one that dropped the leg cap least, then missed the fewest names.
 """
+import math
+
 import numpy as np
 
 from .registry import SELECTORS
 
 K, MARGIN = 4, 0.25
+MIN_NAMED = 0.5
 SCARCE = 12
 
 
@@ -69,24 +77,37 @@ def leg_cap(D, S, theme):
     return max(floor, 2 * sub.min(1).max())
 
 
-def fill(c, n, theme, rng, roles, gain, allowed, k, margin, tries=8):
+def named_quota(c, n, min_named):
+    """(which candidates are named, how many of the n stops must be): min_named of n rounded up, at most as many
+    as are named."""
+    named = c.name_en.notna().to_numpy(bool) if "name_en" in c else np.zeros(len(c), bool)
+    return named, min(math.ceil(min_named * n - 1e-9), int(named.sum()))
+
+
+def fill(c, n, theme, rng, roles, gain, allowed, k, margin, min_named=MIN_NAMED, tries=16):
     """Slot positions into c and the role filling each (None: the theme's whole pool). Up to `tries` seeded
-    attempts: the first that never had to drop the leg cap wins, else the one that dropped it least."""
+    attempts: the first that never had to drop the leg cap and has its named stops wins, else the one that dropped
+    the leg cap least, then missed the fewest named stops."""
     member = {r.name: c[f"role:{r.name}"].to_numpy(bool) for r in roles}
     sizes = {name: int(m.sum()) for name, m in member.items()}
     general = c["general"].to_numpy(bool) if "general" in c else np.ones(len(c), bool)
+    named, need = named_quota(c, n, min_named)
     best = None
     for _ in range(tries):
         S, R, relaxed = [], [], [0]
 
         def take(mask, name):
+            short = need - int(named[S].sum())
+            # named only while it can still be done, and only once the slots left leave no room for another; the leg
+            # cap comes first (a far-off stop is worse than an unnamed one)
             for strict in (True, False):
-                idx = np.flatnonzero(mask & allowed(S, strict))
-                if len(idx):
-                    S.append(top_k(rng, idx, gain(S)[idx], k, margin))
-                    R.append(name)
-                    relaxed[0] += not strict
-                    return True
+                for m in ((mask & named, mask) if 0 < short >= n - len(S) else (mask,)):
+                    idx = np.flatnonzero(m & allowed(S, strict))
+                    if len(idx):
+                        S.append(top_k(rng, idx, gain(S)[idx], k, margin))
+                        R.append(name)
+                        relaxed[0] += not strict
+                        return True
             return False
 
         for r in slots(roles, rng, sizes):
@@ -95,14 +116,17 @@ def fill(c, n, theme, rng, roles, gain, allowed, k, margin, tries=8):
         while len(S) < n and take(general, None):
             pass
         if len(S) == n:
-            if not relaxed[0]:
+            cost = (relaxed[0], max(0, need - int(named[S].sum())))
+            if cost == (0, 0):
                 return S, R
-            if best is None or relaxed[0] < best[0]:
-                best = (relaxed[0], S, R)
+            if best is None or cost < best[0]:
+                best = (cost, S, R)
     return best[1:] if best else None
 
 
 def prepare(cands, n, theme, start, roles, pool):
+    """The candidates worth considering (the pool best, every role's best and the best named ones), their scores,
+    distances and which may be a stop at all."""
     c = cands.reset_index(drop=True)
     if len(c) < n:
         raise SelectionError(f"only {len(c)} candidates for {n} stops")
@@ -112,6 +136,9 @@ def prepare(cands, n, theme, start, roles, pool):
     keep = set(np.argsort(-base, kind="stable")[:pool])
     for r in roles:  # and every role's best, however it scores against the whole pool
         m = np.flatnonzero(c[f"role:{r.name}"].to_numpy(bool))
+        keep |= set(m[np.argsort(-base[m], kind="stable")[:max(pool // 5, 20)]])
+    if "name_en" in c:  # and the best named ones, for the named stops
+        m = np.flatnonzero(c.name_en.notna().to_numpy(bool))
         keep |= set(m[np.argsort(-base[m], kind="stable")[:max(pool // 5, 20)]])
     top = np.array(sorted(keep, key=lambda i: (-base[i], i)), dtype=int)
     c, base = c.iloc[top].reset_index(drop=True), base[top]
@@ -132,7 +159,7 @@ def result(c, picked, what, n, theme, cands):
 
 
 @SELECTORS.register("balanced")
-def balanced(cands, n, theme, rng, start=None, roles=(), k=K, margin=MARGIN, pool=300):
+def balanced(cands, n, theme, rng, start=None, roles=(), k=K, margin=MARGIN, pool=300, min_named=MIN_NAMED):
     c, base, D, free = prepare(cands, n, theme, start, roles, pool)
     gcols = [col for col in c.columns if col.startswith("g:")]
     G = c[gcols].to_numpy(float) if gcols else np.zeros((len(c), 1))
@@ -162,13 +189,13 @@ def balanced(cands, n, theme, rng, start=None, roles=(), k=K, margin=MARGIN, poo
             ok[S] = False
         return ok
 
-    picked = fill(c, n, theme, rng, roles, gain, allowed, k, margin)
+    picked = fill(c, n, theme, rng, roles, gain, allowed, k, margin, min_named)
     return result(c, picked, f"within {2 * theme.radius:.0f} m of each other and {theme.gap:.0f} m apart",
                   n, theme, cands)
 
 
 @SELECTORS.register("notable")
-def most_notable(cands, n, theme, rng, start=None, roles=(), k=K, margin=MARGIN, pool=300):
+def most_notable(cands, n, theme, rng, start=None, roles=(), k=K, margin=MARGIN, pool=300, min_named=MIN_NAMED):
     """The best-scoring candidates wherever they are, still `gap` apart (and the roles filled): for a city-wide
     'where is it?' quest."""
     c, base, D, free = prepare(cands, n, theme, start, roles, pool)
@@ -184,5 +211,5 @@ def most_notable(cands, n, theme, rng, start=None, roles=(), k=K, margin=MARGIN,
             ok[S] = False
         return ok
 
-    picked = fill(c, n, theme, rng, roles, gain, allowed, k, margin)
+    picked = fill(c, n, theme, rng, roles, gain, allowed, k, margin, min_named)
     return result(c, picked, f"{theme.gap:.0f} m apart", n, theme, cands)

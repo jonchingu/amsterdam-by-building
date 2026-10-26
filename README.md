@@ -59,7 +59,8 @@ attributes (year, context layers, monument status, height, names, photos, checke
 notable and compact set, orders it as a walk, writes find / where / year / choice steps that say only what the data
 holds, and plans the flyover with the same planner as `s13_quests`. Each stage is a registry of swappable modules.
 A theme's roles (an era, sometimes a function: a medieval church, a post-war tower) each fill their own stops, so a
-quest spans the eras, and the seed picks among each role's best candidates.
+quest spans the eras, and the seed picks among each role's best candidates. At least half the stops are named
+buildings where the data has them, and an architect question only offers architects of the building's own era.
 
 ```bash
 uv run python -m pipeline.questgen --list-themes

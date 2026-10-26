@@ -14,7 +14,9 @@ The choices a stop supports:
   - which of it and two earlier stops was built first (exact years, at least 15 years apart),
   - its period, against the other periods the quest's stops and the theme's pool hold; never when the theme admits
     one period only (an Amsterdam School quest would give the answer away),
-  - who designed it (an architect with a Wikipedia article), against two other architects in the data,
+  - who designed it (an architect with a Wikipedia article), against two other architects in the data of its own
+    era: each with a building within ERA_YEARS of it, two of the nearest few by the seed; none when two aren't there
+    (de Keyser offered for a 1930 block would give the answer away),
   - how tall it is: the true height lowest, middle or highest of the three by the seed, the others spread by it.
 
 Which kind each stop gets: the kinds its data allows (where: a name and a photo; year: an exact year; choice: one of
@@ -34,6 +36,7 @@ SRC_RCE = "https://monumentenregister.cultureelerfgoed.nl"
 COMPASS = [("north", "noorden"), ("north-east", "noordoosten"), ("east", "oosten"), ("south-east", "zuidoosten"),
            ("south", "zuiden"), ("south-west", "zuidwesten"), ("west", "westen"), ("north-west", "noordwesten")]
 DAM = dict(xy=(0.0, 0.0), en="the Dam", nl="de Dam")
+ERA_YEARS, ERA_NEAREST = 50, 4  # an architect's wrong options: built within 50 years of it, of the 4 nearest
 
 
 def T(en, nl):
@@ -173,9 +176,9 @@ def choices(r, i, rows, pool, seed, eras):
                              [period_span(p) for p in [int(r.period)] + sorted(other)],
                              f"Built in {r.year}.", f"Gebouwd in {r.year}.", {year_source(r)})
     if r.architects and r.wiki_url:
-        others = sorted({a for a in pool["architects"] if a not in r.architects})
+        others = same_era(pool["architects"], r.year, exclude=r.architects)
         if len(others) >= 2:
-            wrong = list(rng.choice(others, 2, replace=False))
+            wrong = [str(x) for x in rng.choice(others, 2, replace=False)]
             a = r.architects[0]
             out["architect"] = (f"Who designed {this_en}?", f"Wie ontwierp {this_nl}?", [T(x, x) for x in [a] + wrong],
                                 f"{a}, as Wikidata records.", f"{a}, volgens Wikidata.", {r.wiki_url})
@@ -188,6 +191,23 @@ def choices(r, i, rows, pool, seed, eras):
                              f"About {h} m to the roof, as the 3D BAG measures it.",
                              f"Ongeveer {h} m tot het dak, zoals de 3D BAG het meet.", {SRC_BAG})
     return out
+
+
+def architect_years(df):
+    """{architect: the years of the buildings the data says they designed}."""
+    out = {}
+    for year, names in zip(df.year, df.architects):
+        for a in names:
+            out.setdefault(a, set()).add(int(year))
+    return {a: sorted(ys) for a, ys in sorted(out.items())}
+
+
+def same_era(years, year, exclude=()):
+    """The architects (years: architect_years) with a building within ERA_YEARS of year, the ERA_NEAREST nearest,
+    ties by name; none of exclude."""
+    gap = {a: min(abs(y - year) for y in ys) for a, ys in years.items() if a not in exclude and ys}
+    near = sorted((d, a) for a, d in gap.items() if d <= ERA_YEARS)
+    return [a for _, a in near[:ERA_NEAREST]]
 
 
 def height_options(h, rng):
@@ -311,7 +331,7 @@ def write(stops, theme, city, rng, start=None, cands=None):
     """Steps for the stops in their order (stops: sourcing's rows, with `noun`, and the selector's `role`).
     start: {xy, en, nl}, where the walk begins (the first hint measures from it), or None (from the Dam).
     cands: the theme's candidates, for the periods a player could think of."""
-    pool = dict(architects=sorted({a for aa in city.df.architects for a in aa}))
+    pool = dict(architects=architect_years(city.df))
     seed = int(rng.integers(2 ** 31))
     rows = [r for _, r in stops.iterrows()]
     eras = theme_periods(cands)
