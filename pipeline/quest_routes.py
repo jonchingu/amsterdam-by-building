@@ -75,11 +75,16 @@ def load_heights(buildings="data/buildings.parquet", parts="data/parts.parquet")
     import geopandas as gpd
     import pandas as pd
 
+    b = pd.read_parquet(buildings, columns=["identificatie", "b3_h_maaiveld"])
+    q = gpd.read_parquet(parts, columns=["identificatie", "b3_h_min", "b3_h_50p", "b3_h_70p", "b3_h_max", "geometry"])
+    return heights_from(b, q)
+
+
+def heights_from(b, q):
+    """Heights from frames shaped as data/buildings.parquet (identificatie, b3_h_maaiveld) and data/parts.parquet."""
     from .s02_attributes import clean_parts
 
-    b = pd.read_parquet(buildings, columns=["identificatie", "b3_h_maaiveld"])
-    q = clean_parts(gpd.read_parquet(parts, columns=["identificatie", "b3_h_min", "b3_h_50p", "b3_h_70p", "b3_h_max",
-                                                     "geometry"]))
+    q = clean_parts(q.copy())
     q = q[q.identificatie.isin(b.identificatie)]
     ground = q.identificatie.map(dict(zip(b.identificatie, b.b3_h_maaiveld)))
     broken = (q.b3_h_max > 400) | (q.b3_h_min < -100)

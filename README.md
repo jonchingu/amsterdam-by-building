@@ -52,6 +52,27 @@ python3 -m http.server 8642 --directory /tmp/ams-fixture/web &
 node tests/flyover_check.mjs http://localhost:8642       # headless: flights, hand-back, reduced motion (needs Playwright)
 ```
 
+## Generated quests
+
+`pipeline/questgen` builds a quest from a theme, straight from the building data: it sources checkpoints by their
+attributes (year, context layers, monument status, height, names, photos, checked facts and stories), picks a varied,
+notable and compact set, orders it as a walk, writes find / where / year / choice steps that say only what the data
+holds, and plans the flyover with the same planner as `s13_quests`. Each stage is a registry of swappable modules.
+A theme's roles (an era, sometimes a function: a medieval church, a post-war tower) each fill their own stops, so a
+quest spans the eras, and the seed picks among each role's best candidates. At least half the stops are named
+buildings where the data has them, and an architect question only offers architects of the building's own era.
+
+```bash
+uv run python -m pipeline.questgen --list-themes
+uv run python -m pipeline.questgen --theme amsterdam-school --stops 6 --seed 1          # preview (--json for JSON)
+uv run python -m pipeline.questgen --theme churches-towers --roles medieval,modern,counterpoint   # or --no-roles
+uv run python -m pipeline.questgen --theme churches-towers --start dam --within 1500 --write --save
+uv run python tests/test_questgen.py                                                    # on the fixture city
+```
+
+`--write` adds the quest to `web/data/quests.json` once it passes s13's checks with a clear route; `--save` keeps its
+spec in `pipeline/questgen/specs.json`, which `s13_quests` rebuilds on every run.
+
 ## Data decisions
 
 - **Years.** BAG gives every building a construction year but not always a true one: 729 carry the placeholder 1005,
